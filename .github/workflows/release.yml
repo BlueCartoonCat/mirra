@@ -13,7 +13,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
@@ -71,10 +71,33 @@ jobs:
           test -n "$apksigner"
           "$apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
 
+      - name: Name release APK
+        run: cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/mirra-$MIRRA_VERSION_NAME.apk"
+
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
           name: mirra-${{ env.MIRRA_VERSION_NAME }}-signed-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: ${{ runner.temp }}/mirra-${{ env.MIRRA_VERSION_NAME }}.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish APK to GitHub Release
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          apk="$RUNNER_TEMP/mirra-$MIRRA_VERSION_NAME.apk"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "$tag" --generate-notes --verify-tag
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -Fxq "$(basename "$apk")"; then
+            echo "Release already contains $(basename "$apk"); leaving it unchanged."
+          else
+            gh release upload "$tag" "$apk" --repo "$GITHUB_REPOSITORY"
+          fi
