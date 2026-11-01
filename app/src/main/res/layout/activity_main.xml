@@ -1,0 +1,58 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/mainContent"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="?attr/colorSurface"
+    android:paddingStart="24dp" android:paddingEnd="24dp" android:paddingTop="28dp" android:paddingBottom="16dp">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="@string/app_name" android:textAppearance="?attr/textAppearanceHeadlineLarge"
+            android:textColor="?attr/colorOnSurface" android:fontFamily="sans-serif-medium" />
+        <ImageButton android:id="@+id/overflowMenu" android:layout_width="48dp" android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless" android:src="@drawable/ic_more_vert"
+            android:contentDescription="@string/more_options" android:tint="?attr/colorOnSurface" />
+    </LinearLayout>
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" android:text="@string/app_subtitle"
+        android:textAppearance="?attr/textAppearanceBodyLarge" android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/readyCard"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp"
+        android:clickable="true" android:focusable="true"
+        app:cardBackgroundColor="?attr/colorSecondaryContainer" app:cardCornerRadius="28dp" app:strokeWidth="0dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:padding="22dp">
+            <TextView android:id="@+id/statusTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="@string/ready_to_cast" android:textAppearance="?attr/textAppearanceTitleLarge"
+                android:textColor="?attr/colorOnSecondaryContainer" />
+            <TextView android:id="@+id/statusDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp" android:text="@string/ready_description"
+                android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="?attr/colorOnSecondaryContainer" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnStopCasting"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+                android:text="@string/stop_casting" android:visibility="gone" app:cornerRadius="24dp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="24dp" android:gravity="center_vertical" android:orientation="horizontal">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="@string/nearby_displays" android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textColor="?attr/colorOnSurface" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnDiscover"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/find_displays"
+            app:cornerRadius="24dp" />
+    </LinearLayout>
+    <TextView android:id="@+id/emptyState" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" android:text="@string/discovery_hint"
+        android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="?attr/colorOnSurfaceVariant" />
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:fillViewport="false" android:clipToPadding="false">
+        <LinearLayout android:id="@+id/peerRows" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="12dp" />
+    </ScrollView>
+</LinearLayout>

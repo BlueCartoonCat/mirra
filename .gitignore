@@ -1,0 +1,30 @@
+# Gradle state and build outputs
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio and local SDK configuration
+.idea/
+*.iml
+local.properties
+.externalNativeBuild/
+.cxx/
+captures/
+install-debug.sh
+
+# Generated Android packages and signing material
+*.apk
+*.aab
+*.ap_
+*.jks
+*.keystore
+*.hprof
+
+# Local secrets and editor / operating system files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.swp
+*~
