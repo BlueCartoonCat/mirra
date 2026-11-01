@@ -1,6 +1,11 @@
 # Mirra
 
 Mirra is an experimental Android screen-casting app for devices such as the Google Pixel. It discovers Wi-Fi Direct peers and attempts to stream to Miracast receivers using a Shizuku-backed Wi-Fi Display source and a foreground screen-capture service.
+
+
+https://github.com/user-attachments/assets/95bbd5f3-42d3-47d0-b984-bf395b3c6e4d
+
+
 ## Requirements
 
 - Android 9 (API 28) or later, with Wi-Fi Direct. Playback audio capture requires Android 10 or later.
