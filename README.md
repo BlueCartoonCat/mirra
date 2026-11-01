@@ -6,6 +6,7 @@ It discovers nearby Wi-Fi Direct devices and attempts to stream your screen to M
 
 Download the latest release: https://github.com/BlueCartoonCat/mirra/releases
 
+https://github.com/user-attachments/assets/95bbd5f3-42d3-47d0-b984-bf395b3c6e4d
 
 ## Requirements
 
