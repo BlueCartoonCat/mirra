@@ -2,6 +2,16 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+// Release signing is configured only when all credentials are supplied.
+def signingPath = System.getenv('MIRRA_KEYSTORE_PATH')
+def signingPassword = System.getenv('MIRRA_KEYSTORE_PASSWORD')
+def signingAlias = System.getenv('MIRRA_KEY_ALIAS')
+def signingKeyPassword = System.getenv('MIRRA_KEY_PASSWORD')
+def signingValues = [signingPath, signingPassword, signingAlias, signingKeyPassword]
+if (signingValues.any { it } && !signingValues.every { it }) {
+    throw new GradleException('All MIRRA_KEYSTORE_PATH, MIRRA_KEYSTORE_PASSWORD, MIRRA_KEY_ALIAS and MIRRA_KEY_PASSWORD values are required for signing.')
+}
+
 android {
     namespace 'io.github.bluecartooncat.mirra'
     compileSdk 36
@@ -10,13 +20,25 @@ android {
         applicationId "io.github.bluecartooncat.mirra"
         minSdk 28
         targetSdk 36
-        versionCode 1
-        versionName "1.0"
+        versionCode (System.getenv('MIRRA_VERSION_CODE') ?: '1').toInteger()
+        versionName System.getenv('MIRRA_VERSION_NAME') ?: '1.0'
 
+    }
+
+    signingConfigs {
+        if (signingValues.every { it }) {
+            release {
+                storeFile file(signingPath)
+                storePassword signingPassword
+                keyAlias signingAlias
+                keyPassword signingKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
+            if (signingValues.every { it }) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

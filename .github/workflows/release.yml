@@ -1,0 +1,78 @@
+name: Build signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Version name for the APK (for example, 1.0.0)
+        required: true
+        default: '1.0.0'
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      MIRRA_KEYSTORE_BASE64: ${{ secrets.MIRRA_KEYSTORE_BASE64 }}
+      MIRRA_KEYSTORE_PASSWORD: ${{ secrets.MIRRA_KEYSTORE_PASSWORD }}
+      MIRRA_KEY_ALIAS: ${{ secrets.MIRRA_KEY_ALIAS }}
+      MIRRA_KEY_PASSWORD: ${{ secrets.MIRRA_KEY_PASSWORD }}
+      INPUT_VERSION_NAME: ${{ inputs.version_name }}
+      MIRRA_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in MIRRA_KEYSTORE_BASE64 MIRRA_KEYSTORE_PASSWORD MIRRA_KEY_ALIAS MIRRA_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$MIRRA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mirra-release.p12"
+          echo "MIRRA_KEYSTORE_PATH=$RUNNER_TEMP/mirra-release.p12" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$INPUT_VERSION_NAME"
+          fi
+          if [[ ! "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]*$ ]]; then
+            echo "Invalid version name" >&2
+            exit 1
+          fi
+          echo "MIRRA_VERSION_NAME=$version" >> "$GITHUB_ENV"
+
+      - name: Build signed APK
+        run: ./gradlew :app:assembleRelease
+
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          test -n "$apksigner"
+          "$apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirra-${{ env.MIRRA_VERSION_NAME }}-signed-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30

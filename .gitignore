@@ -13,11 +13,14 @@ captures/
 install-debug.sh
 
 # Generated Android packages and signing material
+.signing/
 *.apk
 *.aab
 *.ap_
 *.jks
 *.keystore
+*.p12
+*.pfx
 *.hprof
 
 # Local secrets and editor / operating system files
