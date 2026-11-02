@@ -497,7 +497,7 @@ public class MainActivity extends AppCompatActivity {
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         String scrcpySource = getString(R.string.about_scrcpy_url);
-        message.append("\n\n").append(getString(R.string.about_scrcpy)).append("\n");
+        message.append("\n\n").append(getString(R.string.about_scrcpy, ScrcpySession.SERVER_VERSION)).append("\n");
         int scrcpyStart = message.length();
         message.append(scrcpySource);
         message.setSpan(new android.text.style.URLSpan(scrcpySource), scrcpyStart, message.length(),

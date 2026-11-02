@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Owns one shell scrcpy server and its video/control bridge processes. */
 final class ScrcpySession {
+    static final String SERVER_VERSION = "5.0.1";
     private static final String TAG = "ScrcpySession";
     final int width, height;
     private final int fps, bitrateMbps, dpi;
@@ -145,12 +146,12 @@ final class ScrcpySession {
                 + "[ -z \"$watcher\" ] || kill \"$watcher\" 2>/dev/null; rm -f " + remoteJar + "' EXIT; "
                 + "trap 'exit 1' HUP INT TERM; umask 077; head -c " + serverBytes.length + " > " + remoteJar
                 + " || exit 1; chmod 644 " + remoteJar + " || exit 1; "
-                + "env CLASSPATH=" + remoteJar + " app_process / com.genymobile.scrcpy.Server 3.3.4"
+                + "env CLASSPATH=" + remoteJar + " app_process / com.genymobile.scrcpy.Server " + SERVER_VERSION
                 + " cleanup=false scid=" + id + " tunnel_forward=true video_codec=h264 audio=" + this.audioEnabled + " control=true"
                 + (this.audioEnabled ? " audio_codec=raw audio_source=output" : "")
                 + " new_display=" + width + "x" + height + "/" + dpi + " max_fps=" + fps
                 + " video_bit_rate=" + (bitrateMbps * 1000000) + " downsize_on_error=false"
-                + " send_frame_meta=true send_dummy_byte=true send_device_meta=false send_codec_meta=false"
+                + " send_frame_meta=true send_dummy_byte=true send_device_meta=false send_stream_meta=false"
                 + " </dev/null & child=$!; exec 3<&0;"
                 + " (while IFS= read -r line; do :; done; kill \"$child\" 2>/dev/null) <&3 & watcher=$!; exec 3<&-;"
                 + " wait \"$child\"; result=$?; child=; kill \"$watcher\" 2>/dev/null;"
@@ -239,8 +240,8 @@ final class ScrcpySession {
                     loggedFrame = true;
                     startDefaultApp();
                 }
-                ScrcpyFrameRelay.publish(this, frame, meta & 0x3fffffffffffffffL,
-                        (meta & Long.MIN_VALUE) != 0, (meta & (1L << 62)) != 0);
+                ScrcpyFrameRelay.publish(this, frame, meta & 0x1fffffffffffffffL,
+                        (meta & (1L << 62)) != 0, (meta & (1L << 61)) != 0);
             }
         } catch (Exception e) {
             if (!stopped) Log.e(TAG, "External display video ended", e);

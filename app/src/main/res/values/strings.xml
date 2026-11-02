@@ -30,7 +30,7 @@
     <string name="cast_current_screen">Cast phone screen</string>
     <string name="cast_external_screen">Create an external screen</string>
     <string name="cast_uses_scrcpy">(uses scrcpy)</string>
-    <string name="about_scrcpy">External-screen casting uses scrcpy by Genymobile.</string>
+    <string name="about_scrcpy">External-screen casting uses scrcpy %1$s by Genymobile.</string>
     <string name="about_scrcpy_url" translatable="false">https://github.com/Genymobile/scrcpy</string>
     <string name="desktop_settings_warning_title">Experimental desktop settings</string>
     <string name="desktop_settings_warning">One or both experimental desktop settings are not explicitly enabled. Your device may still support external screens, but desktop windowing may not work. You can enable them in Developer options, if available, or using ADB:\n\nadb shell settings put global force_desktop_mode_on_external_displays 1\nadb shell settings put global enable_freeform_support 1\n\nRestart your phone after changing them. You can continue without changing these settings.</string>
