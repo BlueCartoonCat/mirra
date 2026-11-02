@@ -6,7 +6,39 @@ It discovers nearby Wi-Fi Direct devices and attempts to stream your screen to M
 
 Download the latest release: https://github.com/BlueCartoonCat/mirra/releases
 
+## Casting modes
+
+- **Current screen:** Mirrors your phone using Android screen capture. Android asks for screen-sharing consent before casting.
+  
 https://github.com/user-attachments/assets/95bbd5f3-42d3-47d0-b984-bf395b3c6e4d
+
+- **External screen:** Uses the bundled [scrcpy](https://github.com/Genymobile/scrcpy) server to create a separate virtual display. Open apps on the receiver while continuing to use your phone. Support for external displays and desktop windowing varies by device and app.
+
+https://github.com/user-attachments/assets/f86375b5-c952-4f21-be88-7ea1778300ac
+
+## How is this possible?
+
+Android exposes much of Wi-Fi Direct through the public
+`WifiP2pManager` API, including peer discovery and connection management.
+Advertising a device as a Wi-Fi Display source, however, requires hidden APIs
+and the privileged `android.permission.CONFIGURE_WIFI_DISPLAY` permission,
+which an ordinary app cannot grant itself.
+
+Mirra binds to a **Shizuku user service** over Binder. The service runs under
+the shell identity, creates its own Wi-Fi P2P channel, and calls the hidden
+`WifiP2pManager.setWfdInfo()` API through reflection. This advertises the
+phone as an available Wi-Fi Display source on RTSP control port `7236`.
+Mirra then negotiates a Miracast session with the receiver over RTSP.
+
+For external-screen mode, Mirra also starts a **scrcpy server** through
+Shizuku. The server creates a virtual display and encodes it as H.264. Mirra
+receives the video through a local socket bridge and feeds it into the
+Miracast pipeline. Separate scrcpy sockets carry controls and optional audio.
+
+Compatibility outside Pixel devices may vary: manufacturers can change
+Android's Wi-Fi Display implementation, shell permissions, and external-display
+support. Even on supported devices, receiver and app compatibility is not
+guaranteed.
 
 ## Requirements
 
