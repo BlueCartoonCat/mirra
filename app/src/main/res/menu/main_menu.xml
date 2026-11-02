@@ -1,4 +1,5 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/menu_guide" android:title="@string/onboarding_guide" />
     <item android:id="@+id/menu_logs" android:title="@string/menu_logs" />
     <item android:id="@+id/menu_video_modes" android:title="@string/video_modes_title" />
     <item android:id="@+id/menu_scrcpy_settings" android:title="@string/scrcpy_settings_title" />

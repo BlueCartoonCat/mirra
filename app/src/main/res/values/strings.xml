@@ -1,4 +1,26 @@
 <resources>
+    <string name="onboarding_guide">Getting started</string>
+    <string name="onboarding_step">%1$d of %2$d</string>
+    <string name="onboarding_current_title">Current screen</string>
+    <string name="onboarding_current_detail">Mirrors your phone. Android asks for screen-capture consent, and anything visible on your phone may appear on the receiver.</string>
+    <string name="onboarding_external_title">External screen</string>
+    <string name="onboarding_external_detail">Uses <b>scrcpy</b> to create a separate display for apps while you use your phone. Support varies by device and app. Protected content may not work; optional audio may include sound from the whole device.</string>
+    <string name="onboarding_welcome">Welcome to Mirra</string>
+    <string name="onboarding_welcome_detail">Mirra casts your Android device to a compatible Miracast receiver over Wi-Fi Direct. Turn on Wi-Fi and make sure the receiver is ready to accept a wireless display connection.\n\nYou can reopen this guide from the menu.</string>
+    <string name="onboarding_setup">Set up Shizuku</string>
+    <string name="onboarding_setup_detail">Install and start Shizuku before casting. Shizuku provides Mirra with the shell access needed to prepare casting and run the external-display server. Follow the instructions in the Shizuku app to start it using wireless debugging, ADB, or root, as supported by your device.\n\nAllow Mirra when Shizuku asks for permission. Depending on how you start Shizuku, you may need to start it again after restarting your phone.</string>
+    <string name="onboarding_modes">Choose a casting mode</string>
+    <string name="onboarding_modes_detail">Current screen mirrors what is on your phone. Android will ask for screen-capture consent; anything visible on the phone may appear on the receiver.\n\nExternal screen uses scrcpy to create a separate virtual display. Apps can open there while you use your phone. External display and desktop windowing support vary by device and app; some apps or protected content may not work. Optional external audio can include sound from the whole device.</string>
+    <string name="onboarding_controls">Control the external screen</string>
+    <string name="onboarding_controls_detail">While an external screen is casting, open Controller to use the touchpad, launch apps, and open the TV remote or gamepad. Use two fingers to scroll or pinch to zoom.\n\n<b>The TV remote and gamepad use virtual HID devices on Android 15 or newer;</b> support and game compatibility vary. The gamepad has two sticks and supports moving and resizing controls in Edit mode. Triggers are full-press controls, not pressure sensitive.</string>
+    <string name="onboarding_troubleshooting">Connection tips</string>
+    <string name="onboarding_troubleshooting_detail">If a receiver will not connect, try the other connection style: <b>Shared</b> lets the devices negotiate the host; <b>Forced host</b> asks the phone to host. Shared is often better for TVs, and Forced host can help with Windows, but results vary. Long-press a device to clear its remembered choice.\n\n<b>Saved Wi-Fi Direct groups can also cause failures, especially with Windows receivers.</b> Open Wi-Fi Direct settings from Mirra’s menu and manually remove saved groups if needed, then retry. Mirra does not delete them automatically. Some devices, receivers, and content may not support casting.</string>
+    <string name="onboarding_credits">Acknowledgments</string>
+    <string name="onboarding_credits_detail"><b>Mirra</b> is made by <a href="https://github.com/BlueCartoonCat">BlueCartoonCat</a> and licensed under <a href="https://github.com/BlueCartoonCat/mirra/blob/main/LICENSE">Apache 2.0</a>. Explore the <a href="https://github.com/BlueCartoonCat/mirra">Mirra repository</a>.\n\n<b>Shizuku</b> by RikkaApps provides shell access. See its <a href="https://github.com/RikkaApps/Shizuku">repository</a> and <a href="https://github.com/RikkaApps/Shizuku/blob/master/LICENSE">Apache 2.0 license</a>.\n\n<b>scrcpy</b> by Genymobile powers the external screen. See its <a href="https://github.com/Genymobile/scrcpy">repository</a> and <a href="https://github.com/Genymobile/scrcpy/blob/master/LICENSE">Apache 2.0 license</a>.\n\nFound a bug or have an idea? Please <a href="https://github.com/BlueCartoonCat/mirra/issues">report an issue</a> or contribute to the project on GitHub.</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_previous">Previous</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_finish">Get started</string>
     <string name="app_name">Mirra</string>
     <string name="more_options">More options</string>
     <string name="ready_to_cast">Ready to cast</string>
@@ -62,6 +84,7 @@
     <string name="gamepad_done">Done</string>
     <string name="gamepad_reset">Reset</string>
     <string name="gamepad_edit_hint">Drag a control to move it. Select a control and use − or + to resize it.</string>
+    <string name="remote_hid_unavailable">The virtual HID remote requires Android 15 or newer and virtual HID support.</string>
     <string name="gamepad_rt">RT</string>
     <string name="gamepad_unavailable">The virtual gamepad requires Android 15 or newer and a device that supports virtual HID.</string>
     <string name="gamepad_controls_description">Virtual gamepad: two sticks, directional pad, A B X Y, shoulders and triggers.</string>

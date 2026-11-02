@@ -179,6 +179,16 @@ public class MainActivity extends AppCompatActivity {
         Shizuku.addBinderDeadListener(binderDead);
         Shizuku.addRequestPermissionResultListener(permissionResult);
         bindIfAuthorized();
+        if (!getSharedPreferences("onboarding", MODE_PRIVATE).getBoolean("complete", false)
+                && !getPreferences(MODE_PRIVATE).getBoolean("onboarding_complete", false)) {
+            findViewById(R.id.mainContent).post(() -> {
+                if (!isFinishing() && !isDestroyed()) showOnboarding();
+            });
+        }
+    }
+
+    private void showOnboarding() {
+        startActivity(new Intent(this, OnboardingActivity.class));
     }
 
     /** Keep content clear of status bars, cutouts and the navigation area. */
@@ -444,6 +454,10 @@ public class MainActivity extends AppCompatActivity {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.inflate(R.menu.main_menu);
         menu.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == R.id.menu_guide) {
+                showOnboarding();
+                return true;
+            }
             if (item.getItemId() == R.id.menu_logs) {
                 showLogs();
                 return true;

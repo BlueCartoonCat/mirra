@@ -44,6 +44,9 @@ abstract class KeyControllerActivity extends AppCompatActivity {
         }
         session = ScrcpySession.active();
         if (session == null) { Toast.makeText(this, R.string.controller_unavailable, Toast.LENGTH_SHORT).show(); finish(); return; }
+        if (!isGamepad() && !session.nativeRemote()) {
+            Toast.makeText(this, R.string.remote_hid_unavailable, Toast.LENGTH_LONG).show(); finish(); return;
+        }
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);

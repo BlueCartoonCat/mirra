@@ -36,6 +36,13 @@ final class ScrcpySession {
     private static final int MOUSE_ID = 1;
     private static final int REMOTE_ID = 2;
     private static final int GAMEPAD_ID = 3;
+    private static final int REMOTE_CONSUMER_ID = 4;
+    private int remoteConsumerKeys;
+    private static final byte[] REMOTE_CONSUMER_DESCRIPTOR = new byte[]{
+            0x05,0x0c,0x09,0x01,(byte)0xa1,0x01,
+            0x0a,0x24,0x02,0x0a,0x23,0x02,0x15,0x00,0x25,0x01,
+            0x75,0x01,(byte)0x95,0x02,(byte)0x81,0x02,
+            0x75,0x06,(byte)0x95,0x01,(byte)0x81,0x01,(byte)0xc0};
     // Generic HID gamepad: 16 buttons, six 8-bit axes, and an eight-way hat.
     private static final byte[] GAMEPAD_DESCRIPTOR = new byte[]{
             0x05,0x01,0x09,0x05,(byte)0xa1,0x01,
@@ -383,16 +390,35 @@ final class ScrcpySession {
         if (!nativeRemote()) return;
         submit(() -> {
             remoteKeys.clear();
+            remoteConsumerKeys = 0;
             if (enabled) {
                 byte[] name = "Mirra remote".getBytes(StandardCharsets.UTF_8);
                 write(ByteBuffer.allocate(10 + name.length + KEYBOARD_DESCRIPTOR.length)
                         .put((byte) 12).putShort((short) REMOTE_ID).putShort((short) 0).putShort((short) 0)
                         .put((byte) name.length).put(name).putShort((short) KEYBOARD_DESCRIPTOR.length)
                         .put(KEYBOARD_DESCRIPTOR).array());
-            } else write(ByteBuffer.allocate(3).put((byte) 14).putShort((short) REMOTE_ID).array());
+                byte[] consumerName = "Mirra remote navigation".getBytes(StandardCharsets.UTF_8);
+                write(ByteBuffer.allocate(10 + consumerName.length + REMOTE_CONSUMER_DESCRIPTOR.length)
+                        .put((byte) 12).putShort((short) REMOTE_CONSUMER_ID).putShort((short) 0).putShort((short) 0)
+                        .put((byte) consumerName.length).put(consumerName).putShort((short) REMOTE_CONSUMER_DESCRIPTOR.length)
+                        .put(REMOTE_CONSUMER_DESCRIPTOR).array());
+            } else {
+                write(ByteBuffer.allocate(3).put((byte) 14).putShort((short) REMOTE_ID).array());
+                write(ByteBuffer.allocate(3).put((byte) 14).putShort((short) REMOTE_CONSUMER_ID).array());
+            }
         });
     }
     void remoteKeyAction(int keyCode, boolean pressed) {
+        if (!nativeRemote()) return;
+        if (keyCode == android.view.KeyEvent.KEYCODE_BACK || keyCode == android.view.KeyEvent.KEYCODE_HOME) {
+            int bit = keyCode == android.view.KeyEvent.KEYCODE_BACK ? 1 : 2;
+            submit(() -> {
+                if (pressed) remoteConsumerKeys |= bit; else remoteConsumerKeys &= ~bit;
+                write(ByteBuffer.allocate(6).put((byte) 13).putShort((short) REMOTE_CONSUMER_ID)
+                        .putShort((short) 1).put((byte) remoteConsumerKeys).array());
+            });
+            return;
+        }
         int usage;
         switch (keyCode) {
             case android.view.KeyEvent.KEYCODE_DPAD_UP: usage = 0x52; break;
@@ -400,9 +426,8 @@ final class ScrcpySession {
             case android.view.KeyEvent.KEYCODE_DPAD_LEFT: usage = 0x50; break;
             case android.view.KeyEvent.KEYCODE_DPAD_RIGHT: usage = 0x4f; break;
             case android.view.KeyEvent.KEYCODE_DPAD_CENTER: usage = 0x28; break;
-            default: sendKeyAction(keyCode, pressed); return;
+            default: return;
         }
-        if (!nativeRemote()) { sendKeyAction(keyCode, pressed); return; }
         submit(() -> {
             if (pressed) remoteKeys.add(usage); else remoteKeys.remove(usage);
             byte[] report = new byte[8];

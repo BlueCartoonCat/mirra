@@ -58,6 +58,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".ControllerActivity" android:exported="false" />
+        <activity android:name=".OnboardingActivity" android:exported="false" />
         <activity android:name=".RemoteControllerActivity" android:exported="false" />
         <activity android:name=".GamepadActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
     </application>

@@ -1,0 +1,4 @@
+Shizuku launcher icon, from https://github.com/RikkaApps/Shizuku
+Source: manager/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+Shizuku is distributed under the Apache License 2.0:
+https://github.com/RikkaApps/Shizuku/blob/master/LICENSE
