@@ -27,6 +27,7 @@ public class CastingService extends Service {
     private boolean stopping;
     private boolean resetting;
     private boolean leaveGroupAlone;
+    private boolean resolvingInterface;
     private final Handler handler = new Handler(android.os.Looper.getMainLooper());
     private final Runnable resetTimeout = () -> stopInternal(getString(R.string.connection_failed), getString(R.string.connection_reset_failed));
     private final Runnable connectionTimeout = () -> stopInternal(getString(R.string.connection_failed), getString(R.string.connection_timeout));
@@ -65,30 +66,75 @@ public class CastingService extends Service {
                 Log.i("CastingService", "groupFormed=" + info.groupFormed + " groupOwner=" + info.isGroupOwner
                         + " ownerAddress=" + info.groupOwnerAddress);
                 if (info.groupFormed && server == null) {
-                    groupWasFormed = true;
-                    handler.removeCallbacks(connectionTimeout);
-                    handler.postDelayed(playbackTimeout, 30000);
-                    int disabledModes = VideoModePreferences.getDisabled(this);
-                    boolean forceSinkLevels = VideoModePreferences.forceSinkLevels(this);
-                    server = new RTSPServer(captureAudio, externalDisplay, disabledModes, forceSinkLevels, selection ->
-                            new android.os.Handler(getMainLooper()).post(() -> {
-                                if (!sessionActive || stopping) return;
-                                handler.removeCallbacks(playbackTimeout);
-                                int format = selection.experimental ? R.string.stream_format_experimental : R.string.stream_format;
-                                status(getString(R.string.casting), getString(format,
-                                        deviceName, selection.width, selection.height, selection.fps), true);
-                            }), () -> new android.os.Handler(getMainLooper()).post(() -> {
-                                if (sessionActive && !stopping)
-                                    stopInternal(getString(R.string.connection_failed), getString(R.string.no_compatible_video));
-                            }));
-                    server.start();
-                    status(getString(R.string.connected), getString(R.string.connected_to, deviceName), true);
+                    if (resolvingInterface) return;
+                    if (!groupWasFormed) {
+                        groupWasFormed = true;
+                        handler.removeCallbacks(connectionTimeout);
+                        handler.postDelayed(playbackTimeout, 30000);
+                    }
+                    resolveP2pAddress();
                 } else if (!info.groupFormed && groupWasFormed) {
                     stopInternal(getString(R.string.casting_ended), getString(R.string.display_disconnected));
                 }
             });
         } catch (SecurityException e) {
             Log.w("CastingService", "Wi-Fi Direct permission required; retry after granting it", e);
+        }
+    }
+
+    private void resolveP2pAddress() {
+        if (resolvingInterface || !sessionActive || stopping || server != null) return;
+        resolvingInterface = true;
+        try {
+            manager.requestGroupInfo(channel, group -> {
+                resolvingInterface = false;
+                if (!sessionActive || stopping || server != null) return;
+                String interfaceName = group == null ? null : group.getInterface();
+                java.net.InetAddress address = null;
+                try {
+                    java.net.NetworkInterface network = interfaceName == null ? null : java.net.NetworkInterface.getByName(interfaceName);
+                    if (network != null) {
+                        java.util.Enumeration<java.net.InetAddress> addresses = network.getInetAddresses();
+                        while (addresses.hasMoreElements()) {
+                            java.net.InetAddress candidate = addresses.nextElement();
+                            if (candidate instanceof java.net.Inet4Address && !candidate.isAnyLocalAddress()
+                                    && !candidate.isLoopbackAddress()) {
+                                address = candidate;
+                                break;
+                            }
+                        }
+                    }
+                } catch (java.net.SocketException e) {
+                    Log.w("CastingService", "Unable to inspect Wi-Fi Direct interface", e);
+                }
+                if (address == null) {
+                    Log.w("CastingService", "Wi-Fi Direct IPv4 address not ready; retrying");
+                    handler.postDelayed(this::inspectConnection, 500);
+                    return;
+                }
+                int disabledModes = VideoModePreferences.getDisabled(this);
+                boolean forceSinkLevels = VideoModePreferences.forceSinkLevels(this);
+                server = new RTSPServer(address, captureAudio, externalDisplay, disabledModes, forceSinkLevels, selection ->
+                        handler.post(() -> {
+                            if (!sessionActive || stopping) return;
+                            handler.removeCallbacks(playbackTimeout);
+                            int format = selection.experimental ? R.string.stream_format_experimental : R.string.stream_format;
+                            status(getString(R.string.casting), getString(format,
+                                    deviceName, selection.width, selection.height, selection.fps), true);
+                        }), () -> handler.post(() -> {
+                            if (sessionActive && !stopping)
+                                stopInternal(getString(R.string.connection_failed), getString(R.string.no_compatible_video));
+                        }), () -> handler.post(() -> {
+                            if (sessionActive && !stopping)
+                                stopInternal(getString(R.string.connection_failed), getString(R.string.connection_bind_failed));
+                        }));
+                server.start();
+                status(getString(R.string.connected), getString(R.string.connected_to, deviceName), true);
+            });
+        } catch (RuntimeException e) {
+            resolvingInterface = false;
+            Log.w("CastingService", "Unable to obtain Wi-Fi Direct group", e);
+            stopInternal(getString(R.string.connection_failed), getString(R.string.connection_bind_failed));
         }
     }
 

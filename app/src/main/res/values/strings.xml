@@ -170,6 +170,7 @@
     <string name="casting_ended">Casting ended</string>
     <string name="display_disconnected">The display disconnected.</string>
     <string name="connection_failed">Couldn\'t connect</string>
+    <string name="connection_bind_failed">Couldn\'t start the receiver on the Wi-Fi Direct interface. Try reconnecting.</string>
     <string name="connection_reset_failed">Couldn\'t check the active Wi-Fi Direct connection. Try again.</string>
     <string name="connection_other_group">Wi-Fi Direct is connected to another device. Disconnect that group in Wi-Fi Direct settings before casting.</string>
     <string name="connection_timeout">The Wi-Fi Direct connection timed out. If saved groups already exist, clean up all the groups in Wi-Fi Direct settings and try again.</string>

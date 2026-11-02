@@ -16,10 +16,16 @@ public class RTSPServer {
     private volatile boolean isRunning = false;
     private WFDSessionManager sessionManager;
     private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<>());
+    private final InetAddress bindAddress;
+    private final Runnable onBindFailed;
     
-    public RTSPServer(boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
+    public RTSPServer(InetAddress bindAddress, boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
                       java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted,
-                      Runnable onNoCompatibleVideo) {
+                      Runnable onNoCompatibleVideo, Runnable onBindFailed) {
+        if (bindAddress == null || bindAddress.isAnyLocalAddress() || bindAddress.isLoopbackAddress())
+            throw new IllegalArgumentException("A specific Wi-Fi Direct address is required");
+        this.bindAddress = bindAddress;
+        this.onBindFailed = onBindFailed;
         executorService = Executors.newCachedThreadPool();
         sessionManager = new WFDSessionManager(captureAudio, externalDisplay, disabledModes, forceSinkLevels, onPlaybackStarted);
         this.onNoCompatibleVideo = onNoCompatibleVideo;
@@ -32,7 +38,7 @@ public class RTSPServer {
         
         executorService.execute(() -> {
             try {
-                ServerSocket listeningSocket = new ServerSocket(RTSP_PORT);
+                ServerSocket listeningSocket = new ServerSocket(RTSP_PORT, 50, bindAddress);
                 synchronized (this) {
                     if (!isRunning) {
                         listeningSocket.close();
@@ -40,7 +46,7 @@ public class RTSPServer {
                     }
                     serverSocket = listeningSocket;
                 }
-                Log.i(TAG, "RTSP Server started on port " + RTSP_PORT);
+                Log.i(TAG, "RTSP Server started on " + bindAddress.getHostAddress() + ":" + RTSP_PORT);
                 
                 while (isRunning && !Thread.currentThread().isInterrupted()) {
                     try {
@@ -54,8 +60,10 @@ public class RTSPServer {
                     }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "Failed to start RTSP server", e);
+                boolean notify = isRunning;
+                if (notify) Log.e(TAG, "Failed to start RTSP server", e);
                 isRunning = false;
+                if (notify && onBindFailed != null) onBindFailed.run();
             }
         });
     }
