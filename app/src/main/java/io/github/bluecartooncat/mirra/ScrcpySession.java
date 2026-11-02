@@ -27,6 +27,10 @@ final class ScrcpySession {
     private final String id = String.format(java.util.Locale.US, "%08x", new SecureRandom().nextInt() & 0x7fffffff);
     private final String remoteJar = "/data/local/tmp/mirra-scrcpy-" + id + ".jar";
     private final ExecutorService controls = Executors.newSingleThreadExecutor();
+    private final Object controlQueueLock = new Object();
+    private static final class MouseMovement { int x, y; }
+    private MouseMovement queuedMouseMovement;
+    private float mouseRemainderX, mouseRemainderY;
     private volatile boolean stopped;
     private Process server, videoBridge, audioBridge, controlBridge;
     private final java.util.concurrent.ArrayBlockingQueue<byte[]> audioBlocks = new java.util.concurrent.ArrayBlockingQueue<>(25);
@@ -99,17 +103,42 @@ final class ScrcpySession {
     }
     boolean usesNativeMouse() { return android.os.Build.VERSION.SDK_INT >= 35; }
     void moveMouse(float dx, float dy) {
-        if (!usesNativeMouse()) return;
-        int x = Math.round(dx * 1.5f), y = Math.round(dy * 1.5f);
-        submit(() -> {
-            int remainingX = x, remainingY = y;
-            while (remainingX != 0 || remainingY != 0) {
-                int stepX = Math.max(-127, Math.min(127, remainingX));
-                int stepY = Math.max(-127, Math.min(127, remainingY));
-                writeMouseReport(mousePressed ? 1 : 0, stepX, stepY);
-                remainingX -= stepX; remainingY -= stepY;
+        if (!usesNativeMouse() || stopped) return;
+        synchronized (controlQueueLock) {
+            float totalX = mouseRemainderX + dx * 1.5f;
+            float totalY = mouseRemainderY + dy * 1.5f;
+            int x = Math.round(totalX), y = Math.round(totalY);
+            mouseRemainderX = totalX - x;
+            mouseRemainderY = totalY - y;
+            if (x == 0 && y == 0) return;
+            if (queuedMouseMovement != null) {
+                queuedMouseMovement.x += x;
+                queuedMouseMovement.y += y;
+                return;
             }
-        });
+            MouseMovement movement = new MouseMovement();
+            movement.x = x; movement.y = y;
+            queuedMouseMovement = movement;
+            try {
+                controls.execute(() -> {
+                    int remainingX, remainingY;
+                    synchronized (controlQueueLock) {
+                        if (queuedMouseMovement == movement) queuedMouseMovement = null;
+                        remainingX = movement.x; remainingY = movement.y;
+                    }
+                    try {
+                        while (!stopped && (remainingX != 0 || remainingY != 0)) {
+                            int stepX = Math.max(-127, Math.min(127, remainingX));
+                            int stepY = Math.max(-127, Math.min(127, remainingY));
+                            writeMouseReport(mousePressed ? 1 : 0, stepX, stepY);
+                            remainingX -= stepX; remainingY -= stepY;
+                        }
+                    } catch (Exception e) { if (!stopped) Log.w(TAG, "External display mouse input failed", e); }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                queuedMouseMovement = null;
+            }
+        }
     }
     private void writeMouseReport(int buttons, int dx, int dy) throws Exception {
         writeMouseReport(buttons, dx, dy, 0);
@@ -481,12 +510,17 @@ final class ScrcpySession {
     private interface Operation { void run() throws Exception; }
     private void submit(Operation op) {
         if (stopped) return;
-        try {
-            controls.execute(() -> {
-                try { if (!stopped) op.run(); }
-                catch (Exception e) { Log.w(TAG, "External display input failed", e); }
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) { }
+        synchronized (controlQueueLock) {
+            // Preserve ordering: movements after a click or drag transition must
+            // never be merged into a report queued before that transition.
+            queuedMouseMovement = null;
+            try {
+                controls.execute(() -> {
+                    try { if (!stopped) op.run(); }
+                    catch (Exception e) { Log.w(TAG, "External display input failed", e); }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) { }
+        }
     }
     private void write(byte[] bytes) throws Exception {
         Process bridge = controlBridge;
