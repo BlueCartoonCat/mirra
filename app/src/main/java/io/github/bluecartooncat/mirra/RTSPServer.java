@@ -1,6 +1,5 @@
 package io.github.bluecartooncat.mirra;
 
-import android.util.Log;
 
 import java.io.*;
 import java.net.*;
@@ -18,11 +17,11 @@ public class RTSPServer {
     private WFDSessionManager sessionManager;
     private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<>());
     
-    public RTSPServer(boolean captureAudio, int disabledModes, boolean forceSinkLevels,
+    public RTSPServer(boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
                       java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted,
                       Runnable onNoCompatibleVideo) {
         executorService = Executors.newCachedThreadPool();
-        sessionManager = new WFDSessionManager(captureAudio, disabledModes, forceSinkLevels, onPlaybackStarted);
+        sessionManager = new WFDSessionManager(captureAudio, externalDisplay, disabledModes, forceSinkLevels, onPlaybackStarted);
         this.onNoCompatibleVideo = onNoCompatibleVideo;
     }
     private final Runnable onNoCompatibleVideo;
@@ -281,6 +280,7 @@ public class RTSPServer {
                 sessionManager.setParameters(response.body);
                 java.util.regex.Matcher audio = java.util.regex.Pattern.compile("(?im)^wfd_audio_codecs:[ \\t]*([^\\r\\n]+)").matcher(response.body);
                 if (audio.find()) {
+                    Log.i(TAG, "Receiver audio capabilities: " + audio.group(1));
                     java.util.regex.Matcher lpcm = java.util.regex.Pattern.compile("(?i)\\bLPCM\\s+([0-9a-f]+)").matcher(audio.group(1));
                     if (lpcm.find() && (Long.parseLong(lpcm.group(1), 16) & 2) != 0) {
                         selectedAudio = "LPCM 00000002 00";
@@ -294,6 +294,7 @@ public class RTSPServer {
                 if (sinkRtpPort < 1 || sinkRtpPort > 65534) throw new IOException("Invalid sink RTP port " + sinkRtpPort);
                 java.util.regex.Matcher video = java.util.regex.Pattern.compile("(?im)^wfd_video_formats:[ \\t]*([^\\r\\n]+)").matcher(response.body);
                 if (!video.find()) throw new IOException("Sink did not provide video formats");
+                Log.i(TAG, "Receiver video capabilities: " + video.group(1) + "; RTP port=" + sinkRtpPort);
                 VideoNegotiator.Selection selection;
                 try {
                     selection = sessionManager.selectVideoFormat(video.group(1));

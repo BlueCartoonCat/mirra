@@ -105,7 +105,7 @@ final class VideoNegotiator {
                 }
             }
             if (forcedCandidate != null) {
-                android.util.Log.w("VideoNegotiator", "Forcing " + mode[0] + "x" + mode[1]
+                Log.w("VideoNegotiator", "Forcing " + mode[0] + "x" + mode[1]
                         + "p" + mode[2] + " above the sink's advertised H.264 level");
                 return forcedCandidate;
             }
@@ -123,7 +123,7 @@ final class VideoNegotiator {
             Selection advertised = select(capabilities, onlyLegacy, false);
             String codec = findEncoder(mode[0], mode[1], mode[2], advertised.codecProfile, mode[5]);
             if (codec == null) return null;
-            android.util.Log.w("VideoNegotiator", "Experimental " + mode[0] + "x" + mode[1]
+            Log.w("VideoNegotiator", "Experimental " + mode[0] + "x" + mode[1]
                     + "p" + mode[2] + ": advertising " + advertised.width + "x" + advertised.height
                     + "p" + advertised.fps + " to the display");
             return new Selection(mode[0], mode[1], mode[2], advertised.ceaBit,

@@ -4,7 +4,6 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.projection.MediaProjection;
-import android.util.Log;
 import android.view.Surface;
 
 import java.io.ByteArrayOutputStream;
@@ -24,6 +23,7 @@ public class RTPStreamer {
     private final VideoNegotiator.Selection selection;
     private final boolean audioEnabled;
     private final boolean captureAudio;
+    private final boolean externalDisplay;
     private PlaybackAudioCapture audioCapture;
     private long nextAudioUs = -1;
     private final AtomicBoolean running = new AtomicBoolean();
@@ -34,6 +34,7 @@ public class RTPStreamer {
     private MediaCodec encoder;
     private Surface surface;
     private ProjectionRenderer renderer;
+    private ScrcpyVideoDecoder scrcpyDecoder;
     private DatagramSocket socket;
     private DatagramSocket rtcpSocket;
     private long rtpPackets, rtpOctets, lastReportNanos;
@@ -41,18 +42,20 @@ public class RTPStreamer {
     private byte[] codecConfig;
 
     public RTPStreamer(String ip, int port, VideoNegotiator.Selection selection,
-                       DatagramSocket rtpSocket, DatagramSocket rtcpSocket, boolean audioEnabled, boolean captureAudio) {
+                       DatagramSocket rtpSocket, DatagramSocket rtcpSocket, boolean audioEnabled, boolean captureAudio,
+                       boolean externalDisplay) {
         clientIp = ip; clientPort = port;
         this.selection = selection;
         this.socket = rtpSocket; this.rtcpSocket = rtcpSocket; this.audioEnabled = audioEnabled;
         this.captureAudio = captureAudio;
+        this.externalDisplay = externalDisplay;
         this.width = selection.width; this.height = selection.height; this.frameRate = selection.fps;
     }
 
     public synchronized boolean start() {
         if (running.get()) return true;
-        projection = ProjectionService.takeProjection();
-        if (projection == null) {
+        projection = externalDisplay ? null : ProjectionService.takeProjection();
+        if (!externalDisplay && projection == null) {
             Log.e(TAG, "No screen capture permission: tap Allow screen capture before connecting");
             return false;
         }
@@ -75,14 +78,18 @@ public class RTPStreamer {
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             surface = encoder.createInputSurface();
             encoder.start();
-            if (audioEnabled && captureAudio) {
+            if (audioEnabled && captureAudio && !externalDisplay) {
                 audioCapture = new PlaybackAudioCapture(projection);
                 if (!audioCapture.start()) audioCapture = null;
             }
             // Render continuously, including when projection has no new frame.
             renderer = new ProjectionRenderer(projection, surface, width, height, frameRate,
-                    ProjectionService.getDisplayDensity());
+                    ProjectionService.getDisplayDensity(), externalDisplay);
             renderer.start();
+            if (externalDisplay) {
+                scrcpyDecoder = new ScrcpyVideoDecoder(renderer.getInputSurface());
+                scrcpyDecoder.start();
+            }
             running.set(true);
             worker = new Thread(this::drain, "MiracastEncoder");
             worker.start();
@@ -165,14 +172,20 @@ public class RTPStreamer {
             if (nextAudioUs < 0) {
                 nextAudioUs = us;
                 if (audioCapture != null) audioCapture.clearBufferedAudio();
+                ScrcpySession source = externalDisplay ? ScrcpySession.active() : null;
+                if (source != null) source.clearAudioBlocks();
             } else if (us - nextAudioUs > 100_000) {
                 nextAudioUs = us;
                 if (audioCapture != null) audioCapture.clearBufferedAudio();
+                ScrcpySession source = externalDisplay ? ScrcpySession.active() : null;
+                if (source != null) source.clearAudioBlocks();
             }
             while (nextAudioUs <= us) {
                 long audioPts = (nextAudioUs * 90 / 1000) & 0x1ffffffffL;
                 ByteArrayOutputStream audio = new ByteArrayOutputStream();
-                byte[] pcm = audioCapture == null ? new byte[PlaybackAudioCapture.BLOCK_BYTES] : audioCapture.nextBlock();
+                ScrcpySession source = externalDisplay && captureAudio ? ScrcpySession.active() : null;
+                byte[] pcm = source != null ? source.nextAudioBlock()
+                        : audioCapture == null ? new byte[PlaybackAudioCapture.BLOCK_BYTES] : audioCapture.nextBlock();
                 int pcmBytes = pcm.length;
                 int pesLength = 8 + 4 + pcmBytes;
                 audio.write(new byte[]{0, 0, 1, (byte) 0xbd, (byte) (pesLength >> 8), (byte) pesLength,
@@ -269,6 +282,7 @@ public class RTPStreamer {
 
     private synchronized void cleanup() {
         if (audioCapture != null) { audioCapture.stop(); audioCapture = null; }
+        if (scrcpyDecoder != null) { scrcpyDecoder.stop(); scrcpyDecoder = null; }
         if (renderer != null) { renderer.stop(); renderer = null; }
         if (encoder != null) { try { encoder.stop(); } catch (Exception ignored) {} encoder.release(); encoder = null; }
         if (surface != null) { surface.release(); surface = null; }

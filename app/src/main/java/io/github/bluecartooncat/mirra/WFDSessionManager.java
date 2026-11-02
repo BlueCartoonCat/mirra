@@ -1,6 +1,5 @@
 package io.github.bluecartooncat.mirra;
 
-import android.util.Log;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
@@ -19,13 +18,15 @@ public class WFDSessionManager {
     private int clientRtpPort = 16384;
     private boolean audioEnabled;
     private final boolean captureAudio;
+    private final boolean externalDisplay;
     private final int disabledModes;
     private final boolean forceSinkLevels;
     private final java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted;
 
-    public WFDSessionManager(boolean captureAudio, int disabledModes, boolean forceSinkLevels,
+    public WFDSessionManager(boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
                              java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted) {
         this.captureAudio = captureAudio;
+        this.externalDisplay = externalDisplay;
         this.disabledModes = disabledModes;
         this.forceSinkLevels = forceSinkLevels;
         this.onPlaybackStarted = onPlaybackStarted;
@@ -107,7 +108,7 @@ public class WFDSessionManager {
         }
         if (streamer == null) {
             streamer = new RTPStreamer(clientAddress, clientRtpPort, videoSelection,
-                    rtpSocket, rtcpSocket, audioEnabled, captureAudio);
+                    rtpSocket, rtcpSocket, audioEnabled, captureAudio, externalDisplay);
             // The streamer owns the sockets after construction.
             rtpSocket = null;
             rtcpSocket = null;

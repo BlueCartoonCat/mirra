@@ -11,7 +11,7 @@ import android.content.IntentFilter;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Build;
 import android.os.IBinder;
-import android.util.Log;
+import android.os.Handler;
 
 /** Owns the P2P listener independently of the activity lifecycle. */
 public class CastingService extends Service {
@@ -25,8 +25,15 @@ public class CastingService extends Service {
     private RTSPServer server;
     private boolean groupWasFormed;
     private boolean stopping;
+    private boolean resetting;
+    private boolean leaveGroupAlone;
+    private final Handler handler = new Handler(android.os.Looper.getMainLooper());
+    private final Runnable resetTimeout = () -> stopInternal(getString(R.string.connection_failed), getString(R.string.connection_reset_failed));
+    private final Runnable connectionTimeout = () -> stopInternal(getString(R.string.connection_failed), getString(R.string.connection_timeout));
+    private final Runnable playbackTimeout = () -> stopInternal(getString(R.string.connection_failed), getString(R.string.connection_playback_timeout));
     private String deviceName;
     private boolean captureAudio;
+    private boolean externalDisplay;
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) { inspectConnection(); }
     };
@@ -51,19 +58,22 @@ public class CastingService extends Service {
     }
 
     private void inspectConnection() {
-        if (channel == null || !sessionActive || stopping) return;
+        if (channel == null || !sessionActive || stopping || resetting) return;
         try {
             manager.requestConnectionInfo(channel, info -> {
-                if (!sessionActive || stopping) return;
+                if (!sessionActive || stopping || resetting) return;
                 Log.i("CastingService", "groupFormed=" + info.groupFormed + " groupOwner=" + info.isGroupOwner
                         + " ownerAddress=" + info.groupOwnerAddress);
                 if (info.groupFormed && server == null) {
                     groupWasFormed = true;
+                    handler.removeCallbacks(connectionTimeout);
+                    handler.postDelayed(playbackTimeout, 30000);
                     int disabledModes = VideoModePreferences.getDisabled(this);
                     boolean forceSinkLevels = VideoModePreferences.forceSinkLevels(this);
-                    server = new RTSPServer(captureAudio, disabledModes, forceSinkLevels, selection ->
+                    server = new RTSPServer(captureAudio, externalDisplay, disabledModes, forceSinkLevels, selection ->
                             new android.os.Handler(getMainLooper()).post(() -> {
                                 if (!sessionActive || stopping) return;
+                                handler.removeCallbacks(playbackTimeout);
                                 int format = selection.experimental ? R.string.stream_format_experimental : R.string.stream_format;
                                 status(getString(R.string.casting), getString(format,
                                         deviceName, selection.width, selection.height, selection.fps), true);
@@ -87,6 +97,7 @@ public class CastingService extends Service {
         String address = intent.getStringExtra("deviceAddress");
         deviceName = intent.getStringExtra("deviceName");
         captureAudio = intent.getBooleanExtra("captureAudio", false);
+        externalDisplay = intent.getBooleanExtra("externalDisplay", false);
         if (deviceName == null) deviceName = getString(R.string.wireless_display);
         sessionActive = true;
         status(getString(R.string.connecting), getString(R.string.connecting_to, deviceName), true);
@@ -94,16 +105,71 @@ public class CastingService extends Service {
             stopInternal(getString(R.string.connection_failed), getString(R.string.wifi_direct_unavailable));
             return START_NOT_STICKY;
         }
-        android.net.wifi.p2p.WifiP2pConfig config = new android.net.wifi.p2p.WifiP2pConfig();
-        config.deviceAddress = address;
-        // Use a balanced intent so either peer can become group owner.
+        android.net.wifi.p2p.WifiP2pConfig config;
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                // The no-argument constructor requests persistent groups by default.
+                config = new android.net.wifi.p2p.WifiP2pConfig.Builder()
+                        .setDeviceAddress(android.net.MacAddress.fromString(address))
+                        .enablePersistentMode(false).build();
+            } else {
+                // Android 9 has no public API to request a non-persistent group.
+                config = new android.net.wifi.p2p.WifiP2pConfig();
+                config.deviceAddress = address;
+                Log.w("CastingService", "Temporary Wi-Fi Direct groups require Android 10 or newer");
+            }
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            Log.w("CastingService", "Invalid Wi-Fi Direct receiver address", e);
+            stopInternal(getString(R.string.connection_failed), getString(R.string.display_unavailable_detail));
+            return START_NOT_STICKY;
+        }
         // Group ownership is independent of Mirra's Miracast source role.
-        config.groupOwnerIntent = 7;
+        config.groupOwnerIntent = intent.getIntExtra("groupOwnerIntent", 7) == 15 ? 15 : 7;
         config.wps.setup = android.net.wifi.WpsInfo.PBC;
+        Log.i("CastingService", "Preparing Wi-Fi Direct peer=" + address + " group-owner intent="
+                + config.groupOwnerIntent + " WPS=PBC external=" + externalDisplay + " audio=" + captureAudio);
+        checkExistingGroup(config);
+        return START_NOT_STICKY;
+    }
+
+    private void checkExistingGroup(android.net.wifi.p2p.WifiP2pConfig config) {
+        resetting = true;
+        handler.postDelayed(resetTimeout, 8000);
+        try {
+            manager.requestGroupInfo(channel, group -> {
+                if (stopping || !sessionActive || !resetting) return;
+                handler.removeCallbacks(resetTimeout);
+                resetting = false;
+                if (group == null) {
+                    connect(config);
+                    return;
+                }
+                boolean matches = group.getOwner() != null && config.deviceAddress.equalsIgnoreCase(group.getOwner().deviceAddress);
+                if (!matches) for (android.net.wifi.p2p.WifiP2pDevice client : group.getClientList()) {
+                    if (config.deviceAddress.equalsIgnoreCase(client.deviceAddress)) { matches = true; break; }
+                }
+                if (!matches) {
+                    leaveGroupAlone = true;
+                    stopInternal(getString(R.string.connection_failed), getString(R.string.connection_other_group));
+                    return;
+                }
+                Log.i("CastingService", "Reusing Wi-Fi Direct group for selected receiver");
+                handler.postDelayed(connectionTimeout, 30000);
+                inspectConnection();
+            });
+        } catch (RuntimeException e) {
+            Log.w("CastingService", "Unable to check Wi-Fi Direct state", e);
+            stopInternal(getString(R.string.connection_failed), getString(R.string.connection_reset_failed));
+        }
+    }
+
+    private void connect(android.net.wifi.p2p.WifiP2pConfig config) {
+        handler.postDelayed(connectionTimeout, 30000);
         try {
             manager.connect(channel, config, new WifiP2pManager.ActionListener() {
-                @Override public void onSuccess() { Log.i("CastingService", "P2P connection requested: " + address); }
+                @Override public void onSuccess() { Log.i("CastingService", "P2P connection requested: " + config.deviceAddress); }
                 @Override public void onFailure(int reason) {
+                    if (stopping || !sessionActive) return;
                     Log.e("CastingService", "P2P connect failed: " + reason);
                     stopInternal(getString(R.string.connection_failed), getString(R.string.connection_failed_reason, reason));
                 }
@@ -112,7 +178,6 @@ public class CastingService extends Service {
             Log.e("CastingService", "P2P connect error", e);
             stopInternal(getString(R.string.connection_failed), getString(R.string.connection_permissions));
         }
-        return START_NOT_STICKY;
     }
 
     static boolean isSessionActive() { return sessionActive; }
@@ -126,8 +191,9 @@ public class CastingService extends Service {
     }
 
     private void status(String title, String detail, boolean active) {
-        currentTitle = active ? title : null;
-        currentDetail = active ? detail : null;
+        Log.i("CastingService", "Status: " + title + " — " + detail + " active=" + active);
+        currentTitle = title;
+        currentDetail = detail;
         sendBroadcast(new Intent(ACTION_STATUS).setPackage(getPackageName())
                 .putExtra("title", title).putExtra("detail", detail).putExtra("active", active));
     }
@@ -135,9 +201,10 @@ public class CastingService extends Service {
     private void stopInternal(String title, String detail) {
         if (stopping) return;
         stopping = true;
+        handler.removeCallbacksAndMessages(null);
         sessionActive = false;
         if (server != null) { server.stop(); server = null; }
-        if (manager != null && channel != null) {
+        if (manager != null && channel != null && !leaveGroupAlone) {
             try {
                 manager.cancelConnect(channel, null);
                 manager.removeGroup(channel, null);
@@ -151,6 +218,7 @@ public class CastingService extends Service {
     @Override public void onDestroy() {
         sessionActive = false;
         instance = null;
+        handler.removeCallbacksAndMessages(null);
         if (manager != null) {
             try { unregisterReceiver(receiver); } catch (IllegalArgumentException ignored) { }
         }

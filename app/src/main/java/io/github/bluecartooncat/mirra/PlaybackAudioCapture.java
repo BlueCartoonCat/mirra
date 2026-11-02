@@ -6,7 +6,6 @@ import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.projection.MediaProjection;
 import android.os.Build;
-import android.util.Log;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;

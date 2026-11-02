@@ -17,7 +17,6 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcel;
-import android.util.Log;
 import android.view.View;
 import android.net.Uri;
 import android.widget.PopupMenu;
@@ -40,11 +39,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayDeque;
 
 import rikka.shizuku.Shizuku;
 
@@ -58,11 +54,18 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout peerRows;
     private TextView statusTitle, statusDetail, emptyState;
     private MaterialButton stopButton;
+    private MaterialButton controllerButton;
+    private MaterialButton wifiDirectSettingsButton;
     private IBinder shellBinder;
     private Shizuku.UserServiceArgs shellArgs;
     private boolean shellBound, resumed, discoveryActive, awaitingAuthorization, awaitingService;
     private String pendingAddress, pendingName;
+    private String ownP2pAddress;
+    private String ownP2pName;
+    private String lastPeerSnapshot;
     private boolean pendingAudio;
+    private boolean pendingExternalDisplay;
+    private int pendingGroupOwnerIntent = 7;
 
     private final Runnable refreshPeers = new Runnable() {
         @Override public void run() {
@@ -115,6 +118,11 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
             if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(action)) requestPeers();
+            else if (WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION.equals(action)) {
+                WifiP2pDevice device = intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE);
+                updateOwnP2pDevice(device);
+                requestPeers();
+            }
             else if (WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION.equals(action)) {
                 int state = intent.getIntExtra(WifiP2pManager.EXTRA_DISCOVERY_STATE, -1);
                 if (state == WifiP2pManager.WIFI_P2P_DISCOVERY_STOPPED && discoveryActive) {
@@ -143,6 +151,10 @@ public class MainActivity extends AppCompatActivity {
         statusDetail = findViewById(R.id.statusDetail);
         emptyState = findViewById(R.id.emptyState);
         stopButton = findViewById(R.id.btnStopCasting);
+        controllerButton = findViewById(R.id.btnController);
+        wifiDirectSettingsButton = findViewById(R.id.btnWifiDirectSettings);
+        wifiDirectSettingsButton.setOnClickListener(v -> openWifiDirectSettings());
+        controllerButton.setOnClickListener(v -> startActivity(new Intent(this, ControllerActivity.class)));
         findViewById(R.id.overflowMenu).setOnClickListener(this::showMenu);
         findViewById(R.id.btnDiscover).setOnClickListener(v -> discover());
         findViewById(R.id.readyCard).setOnClickListener(v -> {
@@ -160,6 +172,8 @@ public class MainActivity extends AppCompatActivity {
             pendingAddress = savedInstanceState.getString("pendingAddress");
             pendingName = savedInstanceState.getString("pendingName");
             pendingAudio = savedInstanceState.getBoolean("pendingAudio");
+            pendingExternalDisplay = savedInstanceState.getBoolean("pendingExternalDisplay");
+            pendingGroupOwnerIntent = savedInstanceState.getInt("pendingGroupOwnerIntent", 7);
         }
         Shizuku.addBinderReceivedListenerSticky(binderReceived);
         Shizuku.addBinderDeadListener(binderDead);
@@ -188,6 +202,8 @@ public class MainActivity extends AppCompatActivity {
         out.putString("pendingAddress", pendingAddress);
         out.putString("pendingName", pendingName);
         out.putBoolean("pendingAudio", pendingAudio);
+        out.putBoolean("pendingExternalDisplay", pendingExternalDisplay);
+        out.putInt("pendingGroupOwnerIntent", pendingGroupOwnerIntent);
         super.onSaveInstanceState(out);
     }
 
@@ -196,15 +212,16 @@ public class MainActivity extends AppCompatActivity {
         resumed = true;
         IntentFilter filter = new IntentFilter();
         filter.addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION);
+        filter.addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION);
         filter.addAction(WifiP2pManager.WIFI_P2P_DISCOVERY_CHANGED_ACTION);
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED);
         ContextCompat.registerReceiver(this, statusReceiver, new IntentFilter(CastingService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED);
         if (discoveryActive) { handler.removeCallbacks(refreshPeers); handler.post(refreshPeers); }
-        if (CastingService.isSessionActive()) {
+        if (CastingService.isSessionActive() || CastingService.getCurrentTitle() != null) {
             String title = CastingService.getCurrentTitle();
             String detail = CastingService.getCurrentDetail();
             updateStatus(title != null ? title : getString(R.string.casting),
-                    detail != null ? detail : getString(R.string.screen_being_shared), true);
+                    detail != null ? detail : getString(R.string.screen_being_shared), CastingService.isSessionActive());
         }
     }
 
@@ -239,6 +256,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
                 @Override public void onSuccess() {
+                    Log.i(TAG, "Wi-Fi Direct discovery started");
                     discoveryActive = true;
                     emptyState.setText(R.string.looking_for_displays);
                     handler.removeCallbacks(refreshPeers);
@@ -246,6 +264,7 @@ public class MainActivity extends AppCompatActivity {
                     if (shellBinder != null) sendWfd(false);
                 }
                 @Override public void onFailure(int reason) {
+                    Log.w(TAG, "Wi-Fi Direct discovery failed: " + reason);
                     discoveryActive = false;
                     showMessage(getString(R.string.find_failed), getString(R.string.discovery_failed_detail, reason));
                 }
@@ -271,7 +290,7 @@ public class MainActivity extends AppCompatActivity {
                         .setNegativeButton(R.string.cancel, (dialog, which) -> clearPending())
                         .setPositiveButton(R.string.skip_audio, (dialog, which) -> {
                             pendingAudio = false;
-                            requestScreenCapture();
+                            continueWithoutAudio();
                         })
                         .setOnCancelListener(dialog -> clearPending())
                         .show();
@@ -282,11 +301,47 @@ public class MainActivity extends AppCompatActivity {
     private void requestPeers() {
         if (manager == null || channel == null) return;
         try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                manager.requestDeviceInfo(channel, device -> {
+                    updateOwnP2pDevice(device);
+                    loadPeers();
+                });
+            } else loadPeers();
+        } catch (SecurityException e) { Log.w(TAG, "Local device query denied", e); loadPeers(); }
+    }
+
+    private void updateOwnP2pDevice(WifiP2pDevice device) {
+        if (device != null && device.deviceName != null && !device.deviceName.trim().isEmpty())
+            ownP2pName = device.deviceName.trim();
+        if (device != null && device.deviceAddress != null && !"02:00:00:00:00:00".equalsIgnoreCase(device.deviceAddress))
+            ownP2pAddress = device.deviceAddress;
+    }
+
+    private void loadPeers() {
+        if (manager == null || channel == null) return;
+        try {
             manager.requestPeers(channel, list -> {
                 peerRows.removeAllViews();
-                emptyState.setVisibility(list.getDeviceList().isEmpty() ? View.VISIBLE : View.GONE);
-                for (WifiP2pDevice device : list.getDeviceList()) addPeer(device);
-                Log.i(TAG, "Peer list contains " + list.getDeviceList().size() + " device(s)");
+                int count = 0;
+                ArrayList<String> discovered = new ArrayList<>();
+                String localName = ownP2pName;
+                if (localName == null || localName.isEmpty())
+                    localName = android.provider.Settings.Global.getString(getContentResolver(), android.provider.Settings.Global.DEVICE_NAME);
+                for (WifiP2pDevice device : list.getDeviceList()) {
+                    if (ownP2pAddress != null && ownP2pAddress.equalsIgnoreCase(device.deviceAddress)) continue;
+                    if (localName != null && device.deviceName != null
+                            && !localName.trim().isEmpty() && localName.trim().equalsIgnoreCase(device.deviceName.trim())) continue;
+                    addPeer(device);
+                    discovered.add(device.deviceName + " [" + device.deviceAddress + "] status=" + device.status);
+                    count++;
+                }
+                emptyState.setVisibility(count == 0 ? View.VISIBLE : View.GONE);
+                java.util.Collections.sort(discovered);
+                String snapshot = discovered.toString();
+                if (!snapshot.equals(lastPeerSnapshot)) {
+                    lastPeerSnapshot = snapshot;
+                    Log.i(TAG, "Nearby displays: " + snapshot);
+                }
             });
         } catch (SecurityException e) { Log.w(TAG, "Peer query denied", e); }
     }
@@ -317,16 +372,60 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(getString(R.string.confirm_cast_title, name))
                 .setMessage(R.string.confirm_cast_message)
                 .setNegativeButton(R.string.cancel, null)
-                .setPositiveButton(R.string.continue_action, (dialog, which) -> beginCasting(address, name)).show());
+                .setPositiveButton(R.string.continue_action, (dialog, which) -> chooseConnectionStyle(address, name, false)).show());
+        card.setOnLongClickListener(v -> {
+            chooseConnectionStyle(address, name, true);
+            return true;
+        });
         peerRows.addView(card);
     }
 
     private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
 
+    private void chooseConnectionStyle(String address, String name, boolean reset) {
+        if (address == null || address.isEmpty()) { showMessage(getString(R.string.display_unavailable), getString(R.string.display_unavailable_detail)); return; }
+        if (CastingService.isSessionActive()) { showMessage(getString(R.string.already_casting), getString(R.string.already_casting_detail)); return; }
+        android.content.SharedPreferences preferences = getSharedPreferences("connection_styles", MODE_PRIVATE);
+        String key = address.toLowerCase(java.util.Locale.ROOT);
+        if (reset) preferences.edit().remove(key).apply();
+        int saved = preferences.getInt(key, -1);
+        if (!reset && (saved == 7 || saved == 15)) {
+            pendingGroupOwnerIntent = saved;
+            beginCasting(address, name);
+            return;
+        }
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), 0, dp(24), 0);
+        TextView description = new TextView(this);
+        description.setText(R.string.connection_style_description);
+        content.addView(description);
+        android.widget.RadioGroup group = new android.widget.RadioGroup(this);
+        android.widget.RadioButton shared = new android.widget.RadioButton(this);
+        shared.setId(android.view.View.generateViewId());
+        shared.setText(R.string.connection_style_shared);
+        android.widget.RadioButton host = new android.widget.RadioButton(this);
+        host.setId(android.view.View.generateViewId());
+        host.setText(R.string.connection_style_host);
+        group.addView(shared); group.addView(host); group.check(shared.getId());
+        content.addView(group);
+        android.widget.CheckBox remember = new android.widget.CheckBox(this);
+        remember.setText(R.string.connection_style_remember);
+        content.addView(remember);
+        new MaterialAlertDialogBuilder(this).setTitle(R.string.connection_style_title)
+                .setView(content).setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.continue_action, (dialog, which) -> {
+                    pendingGroupOwnerIntent = group.getCheckedRadioButtonId() == host.getId() ? 15 : 7;
+                    if (remember.isChecked()) preferences.edit().putInt(key, pendingGroupOwnerIntent).apply();
+                    beginCasting(address, name);
+                }).show();
+    }
+
     private void beginCasting(String address, String name) {
         if (address == null || address.isEmpty()) { showMessage(getString(R.string.display_unavailable), getString(R.string.display_unavailable_detail)); return; }
         if (CastingService.isSessionActive()) { showMessage(getString(R.string.already_casting), getString(R.string.already_casting_detail)); return; }
         pendingAddress = address; pendingName = name;
+        Log.i(TAG, "Preparing receiver " + name + " [" + address + "] group-owner intent=" + pendingGroupOwnerIntent);
         if (!Shizuku.pingBinder()) {
             clearPending();
             showMessage(getString(R.string.shizuku_start_title), getString(R.string.shizuku_start_detail));
@@ -351,6 +450,10 @@ public class MainActivity extends AppCompatActivity {
             }
             if (item.getItemId() == R.id.menu_video_modes) {
                 showVideoModes();
+                return true;
+            }
+            if (item.getItemId() == R.id.menu_scrcpy_settings) {
+                showScrcpySettings();
                 return true;
             }
             if (item.getItemId() == R.id.menu_reset_wifi_direct) {
@@ -379,6 +482,12 @@ public class MainActivity extends AppCompatActivity {
                     lineStart + linkStart, lineStart + linkStart + source.length(),
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
+        String scrcpySource = getString(R.string.about_scrcpy_url);
+        message.append("\n\n").append(getString(R.string.about_scrcpy)).append("\n");
+        int scrcpyStart = message.length();
+        message.append(scrcpySource);
+        message.setSpan(new android.text.style.URLSpan(scrcpySource), scrcpyStart, message.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         message.append("\n\n").append(getString(R.string.about_copyright))
                 .append("\n").append(getString(R.string.about_license));
         androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
@@ -491,46 +600,40 @@ public class MainActivity extends AppCompatActivity {
                 text.setPadding(dp(20), dp(8), dp(20), dp(8));
                 ScrollView scroll = new ScrollView(this);
                 scroll.addView(text);
+                LinearLayout header = new LinearLayout(this);
+                header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                header.setPadding(dp(24), dp(16), dp(16), 0);
+                TextView heading = new TextView(this);
+                heading.setText(R.string.diagnostic_logs);
+                heading.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineSmall);
+                header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+                MaterialButton export = new MaterialButton(this);
+                export.setText(R.string.export);
+                export.setAllCaps(false);
+                export.setOnClickListener(v -> chooseLogDestination());
+                header.addView(export, new LinearLayout.LayoutParams(-2, -2));
                 new MaterialAlertDialogBuilder(this)
-                        .setTitle(R.string.diagnostic_logs)
+                        .setCustomTitle(header)
                         .setMessage(R.string.logs_privacy_warning)
                         .setView(scroll)
                         .setNegativeButton(R.string.close, null)
-                        .setPositiveButton(R.string.export, (dialog, which) -> {
-                            Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                                    .addCategory(Intent.CATEGORY_OPENABLE)
-                                    .setType("text/plain")
-                                    .putExtra(Intent.EXTRA_TITLE, getString(R.string.logs_filename));
-                            startActivityForResult(save, EXPORT_LOGS_REQUEST);
-                        }).show();
+                        .show();
             });
         }, "LoadLogs").start();
     }
 
-    // Android restricts logcat to this app's UID; cap the output so the viewer
-    // and exported document remain usable during a long casting session.
+    private void chooseLogDestination() {
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("text/plain").putExtra(Intent.EXTRA_TITLE, getString(R.string.logs_filename));
+        startActivityForResult(save, EXPORT_LOGS_REQUEST);
+    }
+
     private String readAppLogs() {
-        ArrayDeque<String> lines = new ArrayDeque<>();
-        int size = 0;
-        Process process = null;
         try {
-            process = new ProcessBuilder("logcat", "-d", "-v", "time", "--pid="
-                    + android.os.Process.myPid(), "*:V").redirectErrorStream(true).start();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.length() > 8192) line = line.substring(0, 8192) + "…";
-                    lines.addLast(line);
-                    size += line.length() + 1;
-                    while (size > 250000 && !lines.isEmpty()) size -= lines.removeFirst().length() + 1;
-                }
-            }
-            if (process.waitFor() != 0) return getString(R.string.logs_read_failed, String.join("\n", lines));
-            return lines.isEmpty() ? getString(R.string.logs_empty) : String.join("\n", lines);
+            byte[] bytes = Log.snapshot();
+            return bytes.length == 0 ? getString(R.string.logs_empty) : new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return getString(R.string.logs_read_error, e.getMessage());
-        } finally {
-            if (process != null) process.destroy();
         }
     }
 
@@ -538,7 +641,7 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try (OutputStream out = getContentResolver().openOutputStream(destination)) {
                 if (out == null) throw new java.io.IOException("Document could not be opened");
-                out.write(readAppLogs().getBytes(StandardCharsets.UTF_8));
+                out.write(Log.snapshot());
                 runOnUiThread(() -> android.widget.Toast.makeText(this, R.string.logs_exported, android.widget.Toast.LENGTH_SHORT).show());
             } catch (Exception e) {
                 Log.e(TAG, "Log export failed", e);
@@ -576,6 +679,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void sendWfd(boolean continueToCapture) {
         IBinder binder = shellBinder;
+        String targetAddress = pendingAddress;
         if (binder == null) {
             if (continueToCapture) { clearPending(); showMessage(getString(R.string.shizuku_start_title), getString(R.string.shizuku_start_detail)); }
             return;
@@ -592,28 +696,249 @@ public class MainActivity extends AppCompatActivity {
             String message = result;
             Log.i(TAG, "WFD: " + message);
             if (continueToCapture) runOnUiThread(() -> {
-                if (pendingAddress == null || isFinishing() || isDestroyed()) return;
+                if (pendingAddress == null || !pendingAddress.equals(targetAddress) || isFinishing() || isDestroyed()) return;
                 if (message == null || !message.contains(": accepted")) {
                     clearPending();
                     showMessage(getString(R.string.prepare_failed), getString(R.string.prepare_failed_detail, message));
                     return;
                 }
-                askAboutAudio();
+                askCastMode();
             });
         }, "WfdCommand").start();
+    }
+
+    private void askCastMode() {
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.VERTICAL);
+        choices.setPadding(dp(20), dp(8), dp(20), dp(8));
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.cast_mode_title)
+                .setView(choices)
+                .setNegativeButton(R.string.cancel, (ignored, which) -> clearPending())
+                .setOnCancelListener(ignored -> clearPending())
+                .create();
+        addCastChoice(choices, R.drawable.ic_cast_phone, R.string.cast_current_screen, 0, () -> {
+                    dialog.dismiss(); pendingExternalDisplay = false; askAboutAudio();
+                });
+        addCastChoice(choices, R.drawable.ic_cast_monitor, R.string.cast_external_screen, R.string.cast_uses_scrcpy, () -> {
+                    dialog.dismiss(); pendingExternalDisplay = true; pendingAudio = false;
+                    checkDesktopSettings();
+                });
+        dialog.show();
+    }
+
+    private void checkDesktopSettings() {
+        new Thread(() -> {
+            boolean desktopEnabled = false;
+            boolean freeformEnabled = false;
+            boolean readable = true;
+            try {
+                desktopEnabled = "1".equals(android.provider.Settings.Global.getString(getContentResolver(),
+                        "force_desktop_mode_on_external_displays"));
+                freeformEnabled = "1".equals(android.provider.Settings.Global.getString(getContentResolver(),
+                        "enable_freeform_support"));
+            } catch (RuntimeException e) {
+                readable = false;
+                Log.w(TAG, "Unable to check desktop settings", e);
+            }
+            boolean enabled = desktopEnabled && freeformEnabled;
+            boolean checked = readable;
+            runOnUiThread(() -> {
+                if (pendingAddress == null || isFinishing() || isDestroyed()) return;
+                if (checked && enabled) { askAboutAudio(); return; }
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(R.string.desktop_settings_warning_title)
+                        .setMessage(checked ? R.string.desktop_settings_warning : R.string.desktop_settings_unavailable)
+                        .setNegativeButton(R.string.cancel, (ignored, which) -> clearPending())
+                        .setPositiveButton(R.string.continue_action, (ignored, which) -> askAboutAudio())
+                        .setOnCancelListener(ignored -> clearPending())
+                        .show();
+            });
+        }, "CheckDesktopSettings").start();
+    }
+
+    private void addCastChoice(LinearLayout parent, int icon, int title, int subtitle, Runnable action) {
+        MaterialCardView card = new MaterialCardView(this);
+        card.setRadius(dp(20));
+        android.util.TypedValue color = new android.util.TypedValue();
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorSecondaryContainer, color, true);
+        card.setCardBackgroundColor(color.data);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(18), dp(20), dp(18), dp(20));
+        android.widget.ImageView image = new android.widget.ImageView(this);
+        image.setImageResource(icon);
+        getTheme().resolveAttribute(com.google.android.material.R.attr.colorOnSecondaryContainer, color, true);
+        image.setColorFilter(color.data);
+        row.addView(image, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        text.setPadding(dp(16), 0, 0, 0);
+        TextView heading = new TextView(this);
+        heading.setText(title);
+        heading.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium);
+        text.addView(heading);
+        if (subtitle != 0) {
+            TextView detail = new TextView(this);
+            detail.setText(subtitle);
+            detail.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
+            text.addView(detail);
+        }
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(row);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(12);
+        parent.addView(card, params);
+        card.setOnClickListener(v -> action.run());
+    }
+
+    private void showScrcpySettings() {
+        ScrcpyPreferences settings = new ScrcpyPreferences(this);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(24), 0, dp(24), 0);
+        TextView description = new TextView(this);
+        description.setText(R.string.scrcpy_settings_description);
+        fields.addView(description);
+        TextView resolutionLabel = new TextView(this);
+        resolutionLabel.setText(R.string.scrcpy_resolution);
+        resolutionLabel.setPadding(0, dp(12), 0, 0);
+        fields.addView(resolutionLabel);
+        int[][] resolutions = {{1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
+        ArrayList<String> resolutionLabels = new ArrayList<>();
+        int selectedResolution = -1;
+        for (int i = 0; i < resolutions.length; i++) {
+            resolutionLabels.add(getString(R.string.scrcpy_resolution_value, resolutions[i][0], resolutions[i][1]));
+            if (settings.width == resolutions[i][0] && settings.height == resolutions[i][1]) selectedResolution = i;
+        }
+        if (selectedResolution == -1) {
+            selectedResolution = resolutionLabels.size();
+            resolutionLabels.add(getString(R.string.scrcpy_resolution_custom, settings.width, settings.height));
+        }
+        android.widget.Spinner resolution = new android.widget.Spinner(this);
+        android.widget.ArrayAdapter<String> resolutionAdapter = new android.widget.ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, resolutionLabels);
+        resolutionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        resolution.setAdapter(resolutionAdapter);
+        resolution.setSelection(selectedResolution);
+        fields.addView(resolution, new LinearLayout.LayoutParams(-1, -2));
+        android.widget.EditText dpi = settingsField(fields, R.string.scrcpy_dpi, settings.dpi);
+        android.widget.EditText fps = settingsField(fields, R.string.scrcpy_fps, settings.fps);
+        android.widget.EditText bitrate = settingsField(fields, R.string.scrcpy_bitrate, settings.bitrateMbps);
+        String[] selectedApp = {settings.defaultApp == null ? "" : settings.defaultApp};
+        TextView appLabel = new TextView(this);
+        appLabel.setText(R.string.scrcpy_default_app);
+        appLabel.setPadding(0, dp(12), 0, 0);
+        fields.addView(appLabel);
+        MaterialButton appPicker = new MaterialButton(this);
+        appPicker.setText(defaultAppLabel(selectedApp[0]));
+        appPicker.setAllCaps(false);
+        appPicker.setOnClickListener(v -> chooseDefaultApp(selectedApp, appPicker));
+        fields.addView(appPicker, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(fields);
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.scrcpy_settings_title).setView(scroll)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.save, null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    try {
+                        int selection = resolution.getSelectedItemPosition();
+                        int w = selection < resolutions.length ? resolutions[selection][0] : settings.width;
+                        int h = selection < resolutions.length ? resolutions[selection][1] : settings.height;
+                        int d = Integer.parseInt(dpi.getText().toString());
+                        int f = Integer.parseInt(fps.getText().toString());
+                        int b = Integer.parseInt(bitrate.getText().toString());
+                        if (w < 320 || w > 3840 || h < 320 || h > 3840 || w % 8 != 0 || h % 8 != 0
+                                || d < 72 || d > 640 || f < 1 || f > 120 || b < 1 || b > 50)
+                            throw new IllegalArgumentException();
+                        ScrcpyPreferences.save(this, w, h, f, b, d, selectedApp[0]);
+                        dialog.dismiss();
+                    } catch (IllegalArgumentException e) {
+                        android.widget.Toast.makeText(this, R.string.scrcpy_settings_invalid,
+                                android.widget.Toast.LENGTH_LONG).show();
+                    }
+                }));
+        dialog.show();
+    }
+
+    private String defaultAppLabel(String packageName) {
+        if (packageName == null || packageName.isEmpty()) return getString(R.string.scrcpy_default_app_none);
+        try {
+            PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString();
+        } catch (PackageManager.NameNotFoundException e) { return packageName; }
+    }
+
+    private void chooseDefaultApp(String[] selectedApp, MaterialButton button) {
+        new Thread(() -> {
+            try {
+                PackageManager pm = getPackageManager();
+                java.util.Map<String, String> apps = new java.util.HashMap<>();
+                for (String category : new String[]{Intent.CATEGORY_LAUNCHER, Intent.CATEGORY_LEANBACK_LAUNCHER}) {
+                    Intent query = new Intent(Intent.ACTION_MAIN).addCategory(category);
+                    for (android.content.pm.ResolveInfo info : pm.queryIntentActivities(query, 0)) {
+                        if (info.activityInfo == null || !info.activityInfo.enabled || !info.activityInfo.applicationInfo.enabled) continue;
+                        String packageName = info.activityInfo.packageName;
+                        apps.put(packageName, info.loadLabel(pm).toString());
+                    }
+                }
+                ArrayList<String> packages = new ArrayList<>(apps.keySet());
+                java.text.Collator collator = java.text.Collator.getInstance();
+                packages.sort((a, b) -> {
+                    int result = collator.compare(apps.get(a), apps.get(b));
+                    return result != 0 ? result : a.compareTo(b);
+                });
+                ArrayList<String> labels = new ArrayList<>();
+                labels.add(getString(R.string.scrcpy_default_app_none));
+                for (String packageName : packages) labels.add(apps.get(packageName));
+                int selected = packages.indexOf(selectedApp[0]) + 1;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed() || !button.isAttachedToWindow()) return;
+                    new MaterialAlertDialogBuilder(this).setTitle(R.string.scrcpy_default_app_choose)
+                            .setSingleChoiceItems(labels.toArray(new String[0]), selected, (dialog, index) -> {
+                                selectedApp[0] = index == 0 ? "" : packages.get(index - 1);
+                                button.setText(index == 0 ? getString(R.string.scrcpy_default_app_none) : labels.get(index));
+                                dialog.dismiss();
+                            }).setNegativeButton(R.string.cancel, null).show();
+                });
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Unable to list launchable apps", e);
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed())
+                        android.widget.Toast.makeText(this, R.string.scrcpy_apps_unavailable, android.widget.Toast.LENGTH_SHORT).show();
+                });
+            }
+        }, "ListDefaultApps").start();
+    }
+
+    private android.widget.EditText settingsField(LinearLayout parent, int hint, int value) {
+        android.widget.EditText field = new android.widget.EditText(this);
+        field.setSingleLine(true);
+        field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        field.setHint(hint);
+        field.setText(String.valueOf(value));
+        TextView label = new TextView(this);
+        label.setText(hint);
+        label.setPadding(0, dp(12), 0, 0);
+        parent.addView(label);
+        parent.addView(field, new LinearLayout.LayoutParams(-1, -2));
+        return field;
     }
 
     private void askAboutAudio() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.share_audio_title)
-                .setMessage(R.string.share_audio_detail)
+                .setMessage(pendingExternalDisplay ? R.string.share_external_audio_detail : R.string.share_audio_detail)
                 .setNeutralButton(R.string.cancel, (dialog, which) -> clearPending())
                 .setNegativeButton(R.string.skip_audio, (dialog, which) -> {
                     pendingAudio = false;
-                    requestScreenCapture();
+                    continueWithoutAudio();
                 })
                 .setPositiveButton(R.string.share_audio, (dialog, which) -> {
                     pendingAudio = true;
+                    if (pendingExternalDisplay) { startProjectionService(0, null); return; }
                     if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                             != PackageManager.PERMISSION_GRANTED) {
                         ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, AUDIO_PERMISSION);
@@ -623,6 +948,11 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setOnCancelListener(dialog -> clearPending())
                 .show();
+    }
+
+    private void continueWithoutAudio() {
+        if (pendingExternalDisplay) startProjectionService(0, null);
+        else requestScreenCapture();
     }
 
     private void requestScreenCapture() {
@@ -642,23 +972,35 @@ public class MainActivity extends AppCompatActivity {
             updateStatus(getString(R.string.ready_to_cast), getString(R.string.capture_cancelled), false);
             return;
         }
+        startProjectionService(resultCode, data);
+    }
+
+    private void startProjectionService(int resultCode, Intent data) {
+        if (pendingAddress == null) return;
+        Log.i(TAG, "Starting " + (pendingExternalDisplay ? "scrcpy external display" : "phone screen")
+                + ", audio=" + pendingAudio + ", receiver=" + pendingName);
         Intent service = new Intent(this, ProjectionService.class);
         service.putExtra("resultCode", resultCode);
         service.putExtra("resultData", data);
         service.putExtra("deviceAddress", pendingAddress);
         service.putExtra("deviceName", pendingName);
         service.putExtra("captureAudio", pendingAudio);
+        service.putExtra("externalDisplay", pendingExternalDisplay);
+        service.putExtra("groupOwnerIntent", pendingGroupOwnerIntent);
         updateStatus(getString(R.string.connecting), getString(R.string.connecting_to, pendingName), true);
         clearPending();
         try { ContextCompat.startForegroundService(this, service); }
         catch (RuntimeException e) { updateStatus(getString(R.string.casting_start_failed), e.getMessage(), false); }
     }
 
-    private void clearPending() { pendingAddress = null; pendingName = null; pendingAudio = false; }
+    private void clearPending() { pendingAddress = null; pendingName = null; pendingAudio = false; pendingExternalDisplay = false; pendingGroupOwnerIntent = 7; }
     private void updateStatus(String title, String detail, boolean active) {
         if (title != null) statusTitle.setText(title);
         if (detail != null) statusDetail.setText(detail);
         stopButton.setVisibility(active ? View.VISIBLE : View.GONE);
+        controllerButton.setVisibility(active && ScrcpySession.active() != null ? View.VISIBLE : View.GONE);
+        wifiDirectSettingsButton.setVisibility(!active && getString(R.string.connection_failed).equals(title)
+                ? View.VISIBLE : View.GONE);
     }
     private void showMessage(String title, String message) {
         if (!isFinishing() && !isDestroyed()) new MaterialAlertDialogBuilder(this).setTitle(title).setMessage(message).setPositiveButton(R.string.ok, null).show();

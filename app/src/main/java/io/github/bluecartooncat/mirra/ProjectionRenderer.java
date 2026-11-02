@@ -15,7 +15,6 @@ import android.opengl.GLES20;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.Surface;
 
 import java.nio.ByteBuffer;
@@ -29,21 +28,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class ProjectionRenderer {
     private static final String TAG = "ProjectionRenderer";
     private final MediaProjection projection;
+    private final boolean externalDisplay;
     private final Surface encoderSurface;
     private final int width, height, fps, density;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean frameAvailable = new AtomicBoolean();
     private volatile SurfaceTexture activeTexture;
+    private volatile Surface inputSurface;
     private final CountDownLatch initialized = new CountDownLatch(1);
     private volatile Exception startupError;
     private final Object resizeLock = new Object();
     private int requestedWidth, requestedHeight;
     private Thread thread;
 
-    ProjectionRenderer(MediaProjection projection, Surface encoderSurface, int width, int height, int fps, int density) {
+    ProjectionRenderer(MediaProjection projection, Surface encoderSurface, int width, int height, int fps, int density,
+                       boolean externalDisplay) {
         this.projection = projection; this.encoderSurface = encoderSurface;
         this.width = width; this.height = height; this.fps = fps; this.density = density;
+        this.externalDisplay = externalDisplay;
     }
+
+    Surface getInputSurface() { return inputSurface; }
 
     void start() throws Exception {
         running.set(true);
@@ -88,7 +93,8 @@ final class ProjectionRenderer {
                 if (source == activeTexture) frameAvailable.set(true);
             }, new Handler(Looper.getMainLooper()));
             captureSurface = new Surface(texture);
-            if (Build.VERSION.SDK_INT >= 34) {
+            inputSurface = captureSurface;
+            if (!externalDisplay && Build.VERSION.SDK_INT >= 34) {
                 resizeCallback = new MediaProjection.Callback() {
                     @Override public void onCapturedContentResize(int contentWidth, int contentHeight) {
                         if (contentWidth <= 0 || contentHeight <= 0) return;
@@ -104,9 +110,11 @@ final class ProjectionRenderer {
                 };
                 projection.registerCallback(resizeCallback, new Handler(Looper.getMainLooper()));
             }
-            virtualDisplay = projection.createVirtualDisplay("Mirra", width, height, density,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, captureSurface, null, null);
-            if (virtualDisplay == null) throw new IllegalStateException("Virtual display unavailable");
+            if (!externalDisplay) {
+                virtualDisplay = projection.createVirtualDisplay("Mirra", width, height, density,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, captureSurface, null, null);
+                if (virtualDisplay == null) throw new IllegalStateException("Virtual display unavailable");
+            }
             initialized.countDown();
             float[] vertices = {-1, -1, 0, 0, 1, -1, 1, 0, -1, 1, 0, 1, 1, 1, 1, 1};
             FloatBuffer buffer = ByteBuffer.allocateDirect(vertices.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -179,6 +187,14 @@ final class ProjectionRenderer {
                     GLES20.glViewport(0, 0, width, height);
                     GLES20.glClearColor(0, 0, 0, 1);
                     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                    ScrcpySession session = externalDisplay ? ScrcpySession.active() : null;
+                    int viewWidth = width, viewHeight = height;
+                    if (session != null) {
+                        float scale = Math.min((float) width / session.width, (float) height / session.height);
+                        viewWidth = Math.max(1, Math.round(session.width * scale));
+                        viewHeight = Math.max(1, Math.round(session.height * scale));
+                        GLES20.glViewport((width - viewWidth) / 2, (height - viewHeight) / 2, viewWidth, viewHeight);
+                    }
                     GLES20.glUseProgram(program);
                     buffer.position(0); GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 16, buffer);
                     buffer.position(2); GLES20.glVertexAttribPointer(texCoord, 2, GLES20.GL_FLOAT, false, 16, buffer);
@@ -187,6 +203,11 @@ final class ProjectionRenderer {
                     GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
                     GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textures[0]);
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                    if (session != null && session.cursorVisible()) {
+                        float x = ((width - viewWidth) / 2f + session.cursorX() * viewWidth) / width;
+                        float y = ((height - viewHeight) / 2f + session.cursorY() * viewHeight) / height;
+                        drawCursor(x, y);
+                    }
                     EGLExt.eglPresentationTimeANDROID(eglDisplay, window, System.nanoTime());
                     if (!EGL14.eglSwapBuffers(eglDisplay, window)) throw new IllegalStateException("eglSwapBuffers failed");
                 }
@@ -204,6 +225,7 @@ final class ProjectionRenderer {
             initialized.countDown();
             running.set(false);
             activeTexture = null;
+            inputSurface = null;
             if (resizeCallback != null) projection.unregisterCallback(resizeCallback);
             if (virtualDisplay != null) virtualDisplay.release();
             if (captureSurface != null) captureSurface.release();
@@ -215,6 +237,24 @@ final class ProjectionRenderer {
                 EGL14.eglReleaseThread(); EGL14.eglTerminate(eglDisplay);
             }
         }
+    }
+
+    private void drawCursor(float x, float y) {
+        int px = Math.max(0, Math.min(width - 1, Math.round(x * (width - 1))));
+        int py = Math.max(0, Math.min(height - 1, Math.round((1 - y) * (height - 1))));
+        int radius = Math.max(8, width / 100);
+        GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+        GLES20.glClearColor(0, 0, 0, 1);
+        GLES20.glScissor(Math.max(0, px - radius - 2), Math.max(0, py - 3), radius * 2 + 4, 7);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+        GLES20.glScissor(Math.max(0, px - 3), Math.max(0, py - radius - 2), 7, radius * 2 + 4);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+        GLES20.glClearColor(1, 1, 1, 1);
+        GLES20.glScissor(Math.max(0, px - radius), Math.max(0, py - 1), radius * 2, 3);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+        GLES20.glScissor(Math.max(0, px - 1), Math.max(0, py - radius), 3, radius * 2);
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+        GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
     }
 
     private static int shader(int type, String source) {
