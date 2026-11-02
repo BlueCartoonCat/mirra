@@ -14,7 +14,7 @@ final class ScrcpyPreferences {
         height = p.getInt("height", 1080);
         fps = p.getInt("fps", 60);
         bitrateMbps = p.getInt("bitrate", 8);
-        dpi = p.getInt("dpi", 140);
+        dpi = p.getInt("dpi", 240);
         defaultApp = p.getString("default_app", "");
     }
 
