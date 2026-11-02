@@ -61,13 +61,17 @@ public class RTPStreamer {
                 throw new IllegalStateException("RTP transport not prepared");
             MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height);
             format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            int bitRate = width >= 1920 ? 12000000 : width >= 1280 ? 8000000 : 3000000;
+            int bitRate = width >= 7680 ? 60000000 : width >= 3840 ? 30000000
+                    : width >= 2560 ? 20000000 : width >= 1920 ? 12000000
+                    : width >= 1280 ? 8000000 : 3000000;
+            encoder = MediaCodec.createByCodecName(selection.codecName);
+            bitRate = encoder.getCodecInfo().getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                    .getVideoCapabilities().getBitrateRange().clamp(bitRate);
             format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
             format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
             format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
             format.setInteger(MediaFormat.KEY_PROFILE, selection.codecProfile);
             format.setInteger(MediaFormat.KEY_LEVEL, selection.codecLevel);
-            encoder = MediaCodec.createByCodecName(selection.codecName);
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             surface = encoder.createInputSurface();
             encoder.start();

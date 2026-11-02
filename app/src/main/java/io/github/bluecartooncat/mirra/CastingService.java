@@ -18,6 +18,8 @@ public class CastingService extends Service {
     static final String ACTION_STATUS = "io.github.bluecartooncat.mirra.CAST_STATUS";
     private static volatile CastingService instance;
     private static volatile boolean sessionActive;
+    private static volatile String currentTitle;
+    private static volatile String currentDetail;
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
     private RTSPServer server;
@@ -57,7 +59,18 @@ public class CastingService extends Service {
                         + " ownerAddress=" + info.groupOwnerAddress);
                 if (info.groupFormed && server == null) {
                     groupWasFormed = true;
-                    server = new RTSPServer(captureAudio);
+                    int disabledModes = VideoModePreferences.getDisabled(this);
+                    boolean forceSinkLevels = VideoModePreferences.forceSinkLevels(this);
+                    server = new RTSPServer(captureAudio, disabledModes, forceSinkLevels, selection ->
+                            new android.os.Handler(getMainLooper()).post(() -> {
+                                if (!sessionActive || stopping) return;
+                                int format = selection.experimental ? R.string.stream_format_experimental : R.string.stream_format;
+                                status(getString(R.string.casting), getString(format,
+                                        deviceName, selection.width, selection.height, selection.fps), true);
+                            }), () -> new android.os.Handler(getMainLooper()).post(() -> {
+                                if (sessionActive && !stopping)
+                                    stopInternal(getString(R.string.connection_failed), getString(R.string.no_compatible_video));
+                            }));
                     server.start();
                     status(getString(R.string.connected), getString(R.string.connected_to, deviceName), true);
                 } else if (!info.groupFormed && groupWasFormed) {
@@ -83,7 +96,10 @@ public class CastingService extends Service {
         }
         android.net.wifi.p2p.WifiP2pConfig config = new android.net.wifi.p2p.WifiP2pConfig();
         config.deviceAddress = address;
-        config.groupOwnerIntent = 15;
+        // Use a balanced intent so either peer can become group owner.
+        // Group ownership is independent of Mirra's Miracast source role.
+        config.groupOwnerIntent = 7;
+        config.wps.setup = android.net.wifi.WpsInfo.PBC;
         try {
             manager.connect(channel, config, new WifiP2pManager.ActionListener() {
                 @Override public void onSuccess() { Log.i("CastingService", "P2P connection requested: " + address); }
@@ -100,6 +116,8 @@ public class CastingService extends Service {
     }
 
     static boolean isSessionActive() { return sessionActive; }
+    static String getCurrentTitle() { return currentTitle; }
+    static String getCurrentDetail() { return currentDetail; }
 
     static void stopSession(Context context) {
         CastingService service = instance;
@@ -108,6 +126,8 @@ public class CastingService extends Service {
     }
 
     private void status(String title, String detail, boolean active) {
+        currentTitle = active ? title : null;
+        currentDetail = active ? detail : null;
         sendBroadcast(new Intent(ACTION_STATUS).setPackage(getPackageName())
                 .putExtra("title", title).putExtra("detail", detail).putExtra("active", active));
     }

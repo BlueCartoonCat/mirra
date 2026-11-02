@@ -18,10 +18,14 @@ public class RTSPServer {
     private WFDSessionManager sessionManager;
     private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<>());
     
-    public RTSPServer(boolean captureAudio) {
+    public RTSPServer(boolean captureAudio, int disabledModes, boolean forceSinkLevels,
+                      java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted,
+                      Runnable onNoCompatibleVideo) {
         executorService = Executors.newCachedThreadPool();
-        sessionManager = new WFDSessionManager(captureAudio);
+        sessionManager = new WFDSessionManager(captureAudio, disabledModes, forceSinkLevels, onPlaybackStarted);
+        this.onNoCompatibleVideo = onNoCompatibleVideo;
     }
+    private final Runnable onNoCompatibleVideo;
     
     public synchronized void start() {
         if (isRunning) return;
@@ -60,7 +64,7 @@ public class RTSPServer {
     private void handleClient(Socket socket) {
         clients.add(socket);
         executorService.execute(() -> {
-            try { new RTSPClientHandler(socket, sessionManager).run(); }
+            try { new RTSPClientHandler(socket, sessionManager, onNoCompatibleVideo).run(); }
             finally { clients.remove(socket); }
         });
     }
@@ -84,6 +88,7 @@ public class RTSPServer {
     private static class RTSPClientHandler implements Runnable {
         private final Socket socket;
         private final WFDSessionManager sessionManager;
+        private final Runnable onNoCompatibleVideo;
         private BufferedReader reader;
         private DataOutputStream writer;
         private int cseq = 0;
@@ -103,9 +108,10 @@ public class RTSPServer {
         private java.util.concurrent.ScheduledExecutorService keepalive;
         private volatile boolean tornDown;
         
-        public RTSPClientHandler(Socket socket, WFDSessionManager sessionManager) {
+        public RTSPClientHandler(Socket socket, WFDSessionManager sessionManager, Runnable onNoCompatibleVideo) {
             this.socket = socket;
             this.sessionManager = sessionManager;
+            this.onNoCompatibleVideo = onNoCompatibleVideo;
         }
         
         @Override
@@ -288,11 +294,16 @@ public class RTSPServer {
                 if (sinkRtpPort < 1 || sinkRtpPort > 65534) throw new IOException("Invalid sink RTP port " + sinkRtpPort);
                 java.util.regex.Matcher video = java.util.regex.Pattern.compile("(?im)^wfd_video_formats:[ \\t]*([^\\r\\n]+)").matcher(response.body);
                 if (!video.find()) throw new IOException("Sink did not provide video formats");
-                VideoNegotiator.Selection selection = VideoNegotiator.select(video.group(1));
+                VideoNegotiator.Selection selection;
+                try {
+                    selection = sessionManager.selectVideoFormat(video.group(1));
+                } catch (IOException e) {
+                    if (onNoCompatibleVideo != null) onNoCompatibleVideo.run();
+                    throw e;
+                }
                 selectedCea = VideoNegotiator.hex(1 << selection.ceaBit, 8);
                 selectedLevel = VideoNegotiator.hex(selection.wfdLevel, 2);
                 selectedProfile = VideoNegotiator.hex(selection.wfdProfile, 2);
-                sessionManager.setVideoFormat(selection);
                 sendSetParameter();
             } else if ("SET_PARAMETER".equals(method)) {
                 sendTriggerSetup();
@@ -372,6 +383,7 @@ public class RTSPServer {
                 sendResponse("503 Service Unavailable", cseq, null);
             } else {
                 sendResponse("200 OK", cseq, headers);
+                sessionManager.notifyPlaybackStarted();
                 startKeepalive();
             }
         }

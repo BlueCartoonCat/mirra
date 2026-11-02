@@ -1,6 +1,5 @@
 <resources>
     <string name="app_name">Mirra</string>
-    <string name="app_subtitle">Miracast for Pixel</string>
     <string name="more_options">More options</string>
     <string name="ready_to_cast">Ready to cast</string>
     <string name="ready_description">Find a nearby wireless display to get started.</string>
@@ -11,7 +10,28 @@
     <string name="looking_for_displays">Looking for nearby displays…</string>
     <string name="menu_logs">View or export logs</string>
     <string name="menu_about">About Mirra</string>
+    <string name="video_modes_title">Set resolutions</string>
+    <string name="video_modes_description">Choose which video modes Mirra may use. Changes apply to the next cast.</string>
+    <string name="video_mode_label">%1$d × %2$d · %3$d fps</string>
+    <string name="video_mode_required">Keep at least one video mode enabled.</string>
+    <string name="video_mode_override_required">Enable the experimental override or select a standard video mode.</string>
+    <string name="video_mode_force_levels">Experimental override: bypass display H.264 limits. 1440p, 4K and 8K are sent as a larger video than advertised; they may fail, show a black screen or disconnect.</string>
+    <string name="video_mode_experimental_label">%1$d × %2$d · %3$d fps (experimental; requires override)</string>
+    <string name="save">Save</string>
+    <string name="stream_format">%1$s · %2$d × %3$d · %4$d fps (negotiated)</string>
+    <string name="stream_format_experimental">%1$s · %2$d × %3$d · %4$d fps (experimental, not negotiated)</string>
+    <string name="no_compatible_video">No enabled video mode is compatible with this display. Enable more modes in Set resolutions and try again.</string>
+    <string name="reset_wifi_direct">Reset Wi-Fi Direct</string>
+    <string name="reset_wifi_direct_detail">Mirra will stop the current cast and open Android settings. Forget saved Wi-Fi Direct devices there; Mirra cannot safely delete them automatically. Your ordinary saved Wi-Fi networks will not be removed by Mirra.</string>
+    <string name="open_settings">Open settings</string>
+    <string name="wifi_direct_settings_hint">In Wi-Fi settings, open Wi-Fi Direct to manage saved devices.</string>
+    <string name="wifi_settings_unavailable">Could not open Wi-Fi settings. Open them manually to manage Wi-Fi Direct devices.</string>
     <string name="about_message">Mirra\nWireless screen casting for Android.\n\nUses Wi-Fi Direct, Miracast and Shizuku. Some displays and protected content may not be supported.</string>
+    <string name="about_source_line">For issues and source code: %1$s</string>
+    <string name="about_source_display" translatable="false">github.com/BlueCartoonCat/mirra</string>
+    <string name="about_source_url" translatable="false">https://github.com/BlueCartoonCat/mirra</string>
+    <string name="about_copyright">Made by BlueCartoonCat © 2026</string>
+    <string name="about_license">This project is licensed under Apache 2.0.</string>
     <string name="close">Close</string>
     <string name="cancel">Cancel</string>
     <string name="continue_action">Continue</string>

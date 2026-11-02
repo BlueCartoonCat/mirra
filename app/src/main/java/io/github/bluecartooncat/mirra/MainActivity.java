@@ -200,7 +200,12 @@ public class MainActivity extends AppCompatActivity {
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED);
         ContextCompat.registerReceiver(this, statusReceiver, new IntentFilter(CastingService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED);
         if (discoveryActive) { handler.removeCallbacks(refreshPeers); handler.post(refreshPeers); }
-        if (CastingService.isSessionActive()) updateStatus(getString(R.string.casting), getString(R.string.screen_being_shared), true);
+        if (CastingService.isSessionActive()) {
+            String title = CastingService.getCurrentTitle();
+            String detail = CastingService.getCurrentDetail();
+            updateStatus(title != null ? title : getString(R.string.casting),
+                    detail != null ? detail : getString(R.string.screen_being_shared), true);
+        }
     }
 
     @Override protected void onPause() {
@@ -344,16 +349,133 @@ public class MainActivity extends AppCompatActivity {
                 showLogs();
                 return true;
             }
+            if (item.getItemId() == R.id.menu_video_modes) {
+                showVideoModes();
+                return true;
+            }
+            if (item.getItemId() == R.id.menu_reset_wifi_direct) {
+                showResetWifiDirect();
+                return true;
+            }
             if (item.getItemId() == R.id.menu_about) {
-                new MaterialAlertDialogBuilder(this)
-                        .setTitle(R.string.menu_about)
-                        .setMessage(R.string.about_message)
-                        .setPositiveButton(R.string.close, null).show();
+                showAbout();
                 return true;
             }
             return false;
         });
         menu.show();
+    }
+
+    private void showAbout() {
+        String source = getString(R.string.about_source_display);
+        String sourceLine = getString(R.string.about_source_line, source);
+        android.text.SpannableStringBuilder message = new android.text.SpannableStringBuilder()
+                .append(getString(R.string.about_message)).append("\n\n");
+        int lineStart = message.length();
+        message.append(sourceLine);
+        int linkStart = sourceLine.indexOf(source);
+        if (linkStart >= 0) {
+            message.setSpan(new android.text.style.URLSpan(getString(R.string.about_source_url)),
+                    lineStart + linkStart, lineStart + linkStart + source.length(),
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        message.append("\n\n").append(getString(R.string.about_copyright))
+                .append("\n").append(getString(R.string.about_license));
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.menu_about)
+                .setMessage(message)
+                .setPositiveButton(R.string.close, null)
+                .show();
+        TextView text = dialog.findViewById(android.R.id.message);
+        if (text != null) text.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    }
+
+    private void showVideoModes() {
+        int[][] modes = VideoNegotiator.supportedModes();
+        int disabled = VideoModePreferences.getDisabled(this);
+        String[] labels = new String[modes.length + 1];
+        boolean[] enabled = new boolean[modes.length + 1];
+        for (int i = 0; i < modes.length; i++) {
+            int label = modes[i][4] == 0 ? R.string.video_mode_experimental_label : R.string.video_mode_label;
+            labels[i] = getString(label, modes[i][0], modes[i][1], modes[i][2]);
+            enabled[i] = (disabled & (1 << modes[i][3])) == 0;
+        }
+        labels[modes.length] = getString(R.string.video_mode_force_levels);
+        enabled[modes.length] = VideoModePreferences.forceSinkLevels(this);
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.video_modes_title) + "\n" + getString(R.string.video_modes_description))
+                .setMultiChoiceItems(labels, enabled, (ignored, index, checked) -> enabled[index] = checked)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.save, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    int newDisabled = 0;
+                    boolean anyEnabled = false;
+                    boolean standardEnabled = false;
+                    for (int i = 0; i < modes.length; i++) {
+                        if (enabled[i]) {
+                            anyEnabled = true;
+                            if (modes[i][4] != 0) standardEnabled = true;
+                        }
+                        else newDisabled |= 1 << modes[i][3];
+                    }
+                    if (!anyEnabled) {
+                        android.widget.Toast.makeText(this, R.string.video_mode_required, android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (!standardEnabled && !enabled[modes.length]) {
+                        android.widget.Toast.makeText(this, R.string.video_mode_override_required,
+                                android.widget.Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    VideoModePreferences.save(this, newDisabled, enabled[modes.length]);
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    private void showResetWifiDirect() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.reset_wifi_direct)
+                .setMessage(R.string.reset_wifi_direct_detail)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.open_settings, (dialog, which) -> {
+                    clearPending();
+                    discoveryActive = false;
+                    handler.removeCallbacks(refreshPeers);
+                    if (manager != null && channel != null) {
+                        try { manager.stopPeerDiscovery(channel, null); }
+                        catch (RuntimeException e) { Log.w(TAG, "Could not stop discovery", e); }
+                    }
+                    if (CastingService.isSessionActive()) CastingService.stopSession(this);
+                    stopService(new Intent(this, ProjectionService.class));
+                    peerRows.removeAllViews();
+                    emptyState.setVisibility(View.VISIBLE);
+                    emptyState.setText(R.string.discovery_hint);
+                    updateStatus(getString(R.string.ready_to_cast), getString(R.string.ready_description), false);
+                    openWifiDirectSettings();
+                }).show();
+    }
+
+    private void openWifiDirectSettings() {
+        // There is no public API for deleting persistent P2P groups. Prefer
+        // the system Wi-Fi Direct screen when available, then Wi-Fi settings.
+        Intent direct = new Intent(Intent.ACTION_MAIN).setClassName("com.android.settings",
+                "com.android.settings.Settings$WifiP2pSettingsActivity");
+        try {
+            startActivity(direct);
+            return;
+        } catch (android.content.ActivityNotFoundException | SecurityException e) {
+            Log.i(TAG, "Direct Wi-Fi Direct settings unavailable; opening Wi-Fi settings");
+        }
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS));
+            android.widget.Toast.makeText(this, R.string.wifi_direct_settings_hint,
+                    android.widget.Toast.LENGTH_LONG).show();
+        } catch (android.content.ActivityNotFoundException | SecurityException e) {
+            showMessage(getString(R.string.reset_wifi_direct), getString(R.string.wifi_settings_unavailable));
+        }
     }
 
     private void showLogs() {

@@ -14,10 +14,6 @@
             android:background="?attr/selectableItemBackgroundBorderless" android:src="@drawable/ic_more_vert"
             android:contentDescription="@string/more_options" android:tint="?attr/colorOnSurface" />
     </LinearLayout>
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" android:text="@string/app_subtitle"
-        android:textAppearance="?attr/textAppearanceBodyLarge" android:textColor="?attr/colorOnSurfaceVariant" />
-
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/readyCard"
         android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp"

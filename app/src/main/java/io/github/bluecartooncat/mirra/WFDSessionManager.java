@@ -19,9 +19,16 @@ public class WFDSessionManager {
     private int clientRtpPort = 16384;
     private boolean audioEnabled;
     private final boolean captureAudio;
+    private final int disabledModes;
+    private final boolean forceSinkLevels;
+    private final java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted;
 
-    public WFDSessionManager(boolean captureAudio) {
+    public WFDSessionManager(boolean captureAudio, int disabledModes, boolean forceSinkLevels,
+                             java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted) {
         this.captureAudio = captureAudio;
+        this.disabledModes = disabledModes;
+        this.forceSinkLevels = forceSinkLevels;
+        this.onPlaybackStarted = onPlaybackStarted;
     }
 
     /** Reply to optional parameter requests and RTSP keepalives from the sink. */
@@ -68,6 +75,16 @@ public class WFDSessionManager {
         videoSelection = selection;
         Log.i(TAG, "Selected video: " + selection.width + "x" + selection.height
                 + "p" + selection.fps + " encoder=" + selection.codecName);
+    }
+
+    public VideoNegotiator.Selection selectVideoFormat(String capabilities) throws IOException {
+        VideoNegotiator.Selection selection = VideoNegotiator.select(capabilities, disabledModes, forceSinkLevels);
+        setVideoFormat(selection);
+        return selection;
+    }
+
+    public void notifyPlaybackStarted() {
+        if (videoSelection != null && onPlaybackStarted != null) onPlaybackStarted.accept(videoSelection);
     }
 
     /** Reserve advertised source ports before acknowledging SETUP. */
