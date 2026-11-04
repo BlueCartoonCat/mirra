@@ -279,8 +279,10 @@ public class GamepadActivity extends AppCompatActivity {
             for (int i = 0; i < contacts.size(); i++) {
                 Contact c = contacts.valueAt(i);
                 if (c.control >= 1 && c.control <= 16) buttons |= 1 << (c.control - 1);
-                else if (c.control == LT) lt = 255;
-                else if (c.control == RT) rt = 255;
+                // Generic HID buttons 9 and 10 map to Linux BTN_TL2/BTN_TR2,
+                // which Android maps to BUTTON_L2/BUTTON_R2. Keep the axes too.
+                else if (c.control == LT) { lt = 255; buttons |= 1 << 8; }
+                else if (c.control == RT) { rt = 255; buttons |= 1 << 9; }
                 else if (c.control == LEFT_STICK) updateStick(c, .22f, .56f, true);
                 else if (c.control == RIGHT_STICK) updateStick(c, .56f, .72f, false);
                 else if (c.control == DPAD) {

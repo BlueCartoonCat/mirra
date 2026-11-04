@@ -113,6 +113,26 @@ final class VideoNegotiator {
         throw new IOException("No compatible progressive CEA video mode; sink=" + value);
     }
 
+    static Selection selectCustom(String capabilities, VideoModePreferences.CustomMode custom) throws IOException {
+        Selection advertised = select(capabilities, EXPERIMENTAL_MODES, false);
+        for (MediaCodecInfo codec : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
+            if (!codec.isEncoder()) continue;
+            try {
+                MediaCodecInfo.CodecCapabilities caps = codec.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
+                if (!caps.getVideoCapabilities().areSizeAndRateSupported(custom.width, custom.height, custom.fps)) continue;
+                int level = 0;
+                for (MediaCodecInfo.CodecProfileLevel supported : caps.profileLevels)
+                    if (supported.profile == advertised.codecProfile) level = Math.max(level, supported.level);
+                if (level == 0) continue;
+                Log.w("VideoNegotiator", "Custom experimental " + custom.width + "x" + custom.height + "p" + custom.fps
+                        + ": advertising " + advertised.width + "x" + advertised.height + "p" + advertised.fps);
+                return new Selection(custom.width, custom.height, custom.fps, advertised.ceaBit,
+                        advertised.wfdProfile, advertised.wfdLevel, advertised.codecProfile, level, codec.getName(), true);
+            } catch (IllegalArgumentException ignored) { }
+        }
+        throw new IOException("No compatible AVC encoder for custom experimental video mode");
+    }
+
     /**
      * Trial only: advertise a genuinely supported legacy mode, while encoding
      * the requested larger frame. This is not extended WFD negotiation.

@@ -49,13 +49,17 @@ final class ScrcpySession {
             0x0a,0x24,0x02,0x0a,0x23,0x02,0x15,0x00,0x25,0x01,
             0x75,0x01,(byte)0x95,0x02,(byte)0x81,0x02,
             0x75,0x06,(byte)0x95,0x01,(byte)0x81,0x01,(byte)0xc0};
-    // Generic HID gamepad: 16 buttons, six 8-bit axes, and an eight-way hat.
+    // Generic HID gamepad: buttons, stick/legacy axes, trigger axes, and a hat.
     private static final byte[] GAMEPAD_DESCRIPTOR = new byte[]{
             0x05,0x01,0x09,0x05,(byte)0xa1,0x01,
             0x05,0x09,0x19,0x01,0x29,0x10,0x15,0x00,0x25,0x01,
             0x75,0x01,(byte)0x95,0x10,(byte)0x81,0x02,
             0x05,0x01,0x09,0x30,0x09,0x31,0x09,0x33,0x09,0x34,0x09,0x32,0x09,0x35,
             0x15,0x00,0x26,(byte)0xff,0x00,0x75,0x08,(byte)0x95,0x06,(byte)0x81,0x02,
+            // Simulation Brake and Accelerator map to ABS_BRAKE/ABS_GAS,
+            // exposed as LTRIGGER/RTRIGGER by Android's generic key layout.
+            0x05,0x02,0x09,(byte)0xc5,0x09,(byte)0xc4,(byte)0x95,0x02,(byte)0x81,0x02,
+            0x05,0x01,
             0x09,0x39,0x15,0x00,0x25,0x07,0x35,0x00,0x46,0x3b,0x01,0x65,0x14,
             0x75,0x04,(byte)0x95,0x01,(byte)0x81,0x42,
             0x75,0x04,(byte)0x95,0x01,(byte)0x81,0x01,(byte)0xc0};
@@ -414,10 +418,10 @@ final class ScrcpySession {
 
     void sendGamepadState(int buttons, int lx, int ly, int rx, int ry, int lt, int rt, int hat) {
         if (!nativeRemote()) return;
-        submit(() -> write(ByteBuffer.allocate(14).put((byte) 13).putShort((short) GAMEPAD_ID)
-                .putShort((short) 9).put((byte) buttons).put((byte) (buttons >> 8))
+        submit(() -> write(ByteBuffer.allocate(16).put((byte) 13).putShort((short) GAMEPAD_ID)
+                .putShort((short) 11).put((byte) buttons).put((byte) (buttons >> 8))
                 .put((byte) lx).put((byte) ly).put((byte) rx).put((byte) ry)
-                .put((byte) lt).put((byte) rt).put((byte) hat).array()));
+                .put((byte) lt).put((byte) rt).put((byte) lt).put((byte) rt).put((byte) hat).array()));
     }
     void setRemoteEnabled(boolean enabled) {
         if (!nativeRemote()) return;

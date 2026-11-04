@@ -21,14 +21,16 @@ public class WFDSessionManager {
     private final boolean externalDisplay;
     private final int disabledModes;
     private final boolean forceSinkLevels;
+    private final VideoModePreferences.CustomMode customMode;
     private final java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted;
 
-    public WFDSessionManager(boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
+    public WFDSessionManager(boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels, VideoModePreferences.CustomMode customMode,
                              java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted) {
         this.captureAudio = captureAudio;
         this.externalDisplay = externalDisplay;
         this.disabledModes = disabledModes;
         this.forceSinkLevels = forceSinkLevels;
+        this.customMode = customMode;
         this.onPlaybackStarted = onPlaybackStarted;
     }
 
@@ -79,7 +81,9 @@ public class WFDSessionManager {
     }
 
     public VideoNegotiator.Selection selectVideoFormat(String capabilities) throws IOException {
-        VideoNegotiator.Selection selection = VideoNegotiator.select(capabilities, disabledModes, forceSinkLevels);
+        VideoNegotiator.Selection selection = customMode != null && customMode.enabled && forceSinkLevels
+                ? VideoNegotiator.selectCustom(capabilities, customMode)
+                : VideoNegotiator.select(capabilities, disabledModes, forceSinkLevels);
         setVideoFormat(selection);
         return selection;
     }

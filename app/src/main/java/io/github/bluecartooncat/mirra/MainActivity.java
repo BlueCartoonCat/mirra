@@ -154,7 +154,7 @@ public class MainActivity extends AppCompatActivity {
         controllerButton = findViewById(R.id.btnController);
         wifiDirectSettingsButton = findViewById(R.id.btnWifiDirectSettings);
         wifiDirectSettingsButton.setOnClickListener(v -> openWifiDirectSettings());
-        controllerButton.setOnClickListener(v -> startActivity(new Intent(this, ControllerActivity.class)));
+        controllerButton.setOnClickListener(v -> openController());
         findViewById(R.id.overflowMenu).setOnClickListener(this::showMenu);
         findViewById(R.id.btnDiscover).setOnClickListener(v -> discover());
         findViewById(R.id.readyCard).setOnClickListener(v -> {
@@ -185,6 +185,32 @@ public class MainActivity extends AppCompatActivity {
                 if (!isFinishing() && !isDestroyed()) showOnboarding();
             });
         }
+    }
+
+    private void openController() {
+        if (getSharedPreferences("controller", MODE_PRIVATE).getBoolean("hide_back_warning", false)) {
+            startActivity(new Intent(this, ControllerActivity.class));
+            return;
+        }
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), dp(8), dp(24), 0);
+        TextView message = new TextView(this);
+        message.setText(R.string.controller_back_warning_detail);
+        content.addView(message);
+        com.google.android.material.checkbox.MaterialCheckBox remember =
+                new com.google.android.material.checkbox.MaterialCheckBox(this);
+        remember.setText(R.string.controller_back_warning_remember);
+        content.addView(remember);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.controller_back_warning_title)
+                .setView(content)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.continue_action, (dialog, which) -> {
+                    if (remember.isChecked()) getSharedPreferences("controller", MODE_PRIVATE).edit()
+                            .putBoolean("hide_back_warning", true).apply();
+                    startActivity(new Intent(this, ControllerActivity.class));
+                }).show();
     }
 
     private void showOnboarding() {
@@ -516,19 +542,26 @@ public class MainActivity extends AppCompatActivity {
     private void showVideoModes() {
         int[][] modes = VideoNegotiator.supportedModes();
         int disabled = VideoModePreferences.getDisabled(this);
-        String[] labels = new String[modes.length + 1];
-        boolean[] enabled = new boolean[modes.length + 1];
+        VideoModePreferences.CustomMode custom = VideoModePreferences.customMode(this);
+        int overrideIndex = modes.length + (custom == null ? 0 : 1);
+        String[] labels = new String[overrideIndex + 1];
+        boolean[] enabled = new boolean[overrideIndex + 1];
         for (int i = 0; i < modes.length; i++) {
             int label = modes[i][4] == 0 ? R.string.video_mode_experimental_label : R.string.video_mode_label;
             labels[i] = getString(label, modes[i][0], modes[i][1], modes[i][2]);
             enabled[i] = (disabled & (1 << modes[i][3])) == 0;
         }
-        labels[modes.length] = getString(R.string.video_mode_force_levels);
-        enabled[modes.length] = VideoModePreferences.forceSinkLevels(this);
+        if (custom != null) {
+            labels[modes.length] = getString(R.string.video_mode_custom_label, custom.width, custom.height, custom.fps);
+            enabled[modes.length] = custom.enabled;
+        }
+        labels[overrideIndex] = getString(R.string.video_mode_force_levels);
+        enabled[overrideIndex] = VideoModePreferences.forceSinkLevels(this);
         androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle(getString(R.string.video_modes_title) + "\n" + getString(R.string.video_modes_description))
                 .setMultiChoiceItems(labels, enabled, (ignored, index, checked) -> enabled[index] = checked)
                 .setNegativeButton(R.string.cancel, null)
+                .setNeutralButton(R.string.video_mode_custom_edit, (ignored, which) -> showCustomVideoMode())
                 .setPositiveButton(R.string.save, null)
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
@@ -543,18 +576,52 @@ public class MainActivity extends AppCompatActivity {
                         }
                         else newDisabled |= 1 << modes[i][3];
                     }
+                    if (custom != null && enabled[modes.length]) anyEnabled = true;
                     if (!anyEnabled) {
                         android.widget.Toast.makeText(this, R.string.video_mode_required, android.widget.Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    if (!standardEnabled && !enabled[modes.length]) {
+                    if (!standardEnabled && !enabled[overrideIndex]) {
                         android.widget.Toast.makeText(this, R.string.video_mode_override_required,
                                 android.widget.Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    VideoModePreferences.save(this, newDisabled, enabled[modes.length]);
+                    VideoModePreferences.save(this, newDisabled, enabled[overrideIndex]);
+                    if (custom != null) VideoModePreferences.saveCustom(this, custom.width, custom.height, custom.fps, enabled[modes.length]);
                     dialog.dismiss();
                 }));
+        dialog.show();
+    }
+
+    private void showCustomVideoMode() {
+        VideoModePreferences.CustomMode custom = VideoModePreferences.customMode(this);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(24), dp(8), dp(24), 0);
+        TextView warning = new TextView(this);
+        warning.setText(R.string.video_mode_custom_description);
+        fields.addView(warning);
+        android.widget.EditText width = settingsField(fields, R.string.video_mode_custom_width, custom == null ? 1920 : custom.width);
+        android.widget.EditText height = settingsField(fields, R.string.video_mode_custom_height, custom == null ? 1080 : custom.height);
+        android.widget.EditText fps = settingsField(fields, R.string.scrcpy_fps, custom == null ? 60 : custom.fps);
+        androidx.appcompat.app.AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.video_mode_custom_edit).setView(fields)
+                .setNegativeButton(R.string.cancel, (ignored, which) -> showVideoModes())
+                .setPositiveButton(R.string.save, null).create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            try {
+                int w = Integer.parseInt(width.getText().toString());
+                int h = Integer.parseInt(height.getText().toString());
+                int f = Integer.parseInt(fps.getText().toString());
+                if (w <= 0 || h <= 0 || f <= 0)
+                    throw new IllegalArgumentException();
+                VideoModePreferences.saveCustom(this, w, h, f, custom != null && custom.enabled);
+                dialog.dismiss();
+                showVideoModes();
+            } catch (IllegalArgumentException e) {
+                android.widget.Toast.makeText(this, R.string.video_mode_custom_invalid, android.widget.Toast.LENGTH_LONG).show();
+            }
+        }));
         dialog.show();
     }
 
@@ -825,10 +892,8 @@ public class MainActivity extends AppCompatActivity {
             resolutionLabels.add(getString(R.string.scrcpy_resolution_value, resolutions[i][0], resolutions[i][1]));
             if (settings.width == resolutions[i][0] && settings.height == resolutions[i][1]) selectedResolution = i;
         }
-        if (selectedResolution == -1) {
-            selectedResolution = resolutionLabels.size();
-            resolutionLabels.add(getString(R.string.scrcpy_resolution_custom, settings.width, settings.height));
-        }
+        if (selectedResolution == -1) selectedResolution = resolutions.length;
+        resolutionLabels.add(getString(R.string.scrcpy_resolution_custom_preset));
         android.widget.Spinner resolution = new android.widget.Spinner(this);
         android.widget.ArrayAdapter<String> resolutionAdapter = new android.widget.ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_item, resolutionLabels);
@@ -836,6 +901,28 @@ public class MainActivity extends AppCompatActivity {
         resolution.setAdapter(resolutionAdapter);
         resolution.setSelection(selectedResolution);
         fields.addView(resolution, new LinearLayout.LayoutParams(-1, -2));
+        android.widget.EditText width = settingsField(fields, R.string.video_mode_custom_width, settings.width);
+        android.widget.EditText height = settingsField(fields, R.string.video_mode_custom_height, settings.height);
+        boolean[] settingPreset = {false};
+        resolution.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position >= resolutions.length) return;
+                settingPreset[0] = true;
+                width.setText(Integer.toString(resolutions[position][0]));
+                height.setText(Integer.toString(resolutions[position][1]));
+                settingPreset[0] = false;
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+        android.text.TextWatcher customWatcher = new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (!settingPreset[0]) resolution.setSelection(resolutions.length);
+            }
+            @Override public void afterTextChanged(android.text.Editable s) { }
+        };
+        width.addTextChangedListener(customWatcher);
+        height.addTextChangedListener(customWatcher);
         android.widget.EditText dpi = settingsField(fields, R.string.scrcpy_dpi, settings.dpi);
         android.widget.EditText fps = settingsField(fields, R.string.scrcpy_fps, settings.fps);
         android.widget.EditText bitrate = settingsField(fields, R.string.scrcpy_bitrate, settings.bitrateMbps);
@@ -851,9 +938,6 @@ public class MainActivity extends AppCompatActivity {
         mouseMode.setAdapter(mouseAdapter);
         mouseMode.setSelection(settings.touchMouse ? 1 : 0);
         fields.addView(mouseMode, new LinearLayout.LayoutParams(-1, -2));
-        TextView mouseDescription = new TextView(this);
-        mouseDescription.setText(R.string.scrcpy_mouse_description);
-        fields.addView(mouseDescription);
         String[] selectedApp = {settings.defaultApp == null ? "" : settings.defaultApp};
         TextView appLabel = new TextView(this);
         appLabel.setText(R.string.scrcpy_default_app);
@@ -873,14 +957,13 @@ public class MainActivity extends AppCompatActivity {
         dialog.setOnShowListener(ignored -> dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)
                 .setOnClickListener(v -> {
                     try {
-                        int selection = resolution.getSelectedItemPosition();
-                        int w = selection < resolutions.length ? resolutions[selection][0] : settings.width;
-                        int h = selection < resolutions.length ? resolutions[selection][1] : settings.height;
+                        int w = Integer.parseInt(width.getText().toString());
+                        int h = Integer.parseInt(height.getText().toString());
                         int d = Integer.parseInt(dpi.getText().toString());
                         int f = Integer.parseInt(fps.getText().toString());
                         int b = Integer.parseInt(bitrate.getText().toString());
-                        if (w < 320 || w > 3840 || h < 320 || h > 3840 || w % 8 != 0 || h % 8 != 0
-                                || d < 72 || d > 640 || f < 1 || f > 120 || b < 1 || b > 50)
+                        if (w <= 0 || w > 65535 || h <= 0 || h > 65535
+                                || d < 72 || d > 640 || f < 1 || b < 1 || b > 50)
                             throw new IllegalArgumentException();
                         ScrcpyPreferences.save(this, w, h, f, b, d, selectedApp[0], mouseMode.getSelectedItemPosition() == 1);
                         dialog.dismiss();

@@ -19,7 +19,7 @@ public class RTSPServer {
     private final InetAddress bindAddress;
     private final Runnable onBindFailed;
     
-    public RTSPServer(InetAddress bindAddress, boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels,
+    public RTSPServer(InetAddress bindAddress, boolean captureAudio, boolean externalDisplay, int disabledModes, boolean forceSinkLevels, VideoModePreferences.CustomMode customMode,
                       java.util.function.Consumer<VideoNegotiator.Selection> onPlaybackStarted,
                       Runnable onNoCompatibleVideo, Runnable onBindFailed) {
         if (bindAddress == null || bindAddress.isAnyLocalAddress() || bindAddress.isLoopbackAddress())
@@ -27,7 +27,7 @@ public class RTSPServer {
         this.bindAddress = bindAddress;
         this.onBindFailed = onBindFailed;
         executorService = Executors.newCachedThreadPool();
-        sessionManager = new WFDSessionManager(captureAudio, externalDisplay, disabledModes, forceSinkLevels, onPlaybackStarted);
+        sessionManager = new WFDSessionManager(captureAudio, externalDisplay, disabledModes, forceSinkLevels, customMode, onPlaybackStarted);
         this.onNoCompatibleVideo = onNoCompatibleVideo;
     }
     private final Runnable onNoCompatibleVideo;

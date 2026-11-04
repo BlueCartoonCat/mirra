@@ -114,7 +114,7 @@ public class CastingService extends Service {
                 }
                 int disabledModes = VideoModePreferences.getDisabled(this);
                 boolean forceSinkLevels = VideoModePreferences.forceSinkLevels(this);
-                server = new RTSPServer(address, captureAudio, externalDisplay, disabledModes, forceSinkLevels, selection ->
+                server = new RTSPServer(address, captureAudio, externalDisplay, disabledModes, forceSinkLevels, VideoModePreferences.customMode(this), selection ->
                         handler.post(() -> {
                             if (!sessionActive || stopping) return;
                             handler.removeCallbacks(playbackTimeout);
