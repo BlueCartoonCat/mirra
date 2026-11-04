@@ -33,6 +33,7 @@ public class ControllerActivity extends AppCompatActivity {
     private float lastX, lastY;
     private boolean receiverRegistered;
     private boolean dragging, scaling;
+    private boolean keyboardMode, keyboardShown;
     private GestureDetector gestures;
     private float lastCentroidX, lastCentroidY, gestureStartX, gestureStartY, startSpan, lastZoomSpan;
     private float scrollX, scrollY;
@@ -47,6 +48,7 @@ public class ControllerActivity extends AppCompatActivity {
         DynamicColors.applyToActivityIfAvailable(this);
         super.onCreate(state);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         session = ScrcpySession.active();
         if (session == null) {
             Toast.makeText(this, R.string.controller_unavailable, Toast.LENGTH_SHORT).show();
@@ -70,6 +72,10 @@ public class ControllerActivity extends AppCompatActivity {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
             view.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            if (keyboardMode) {
+                if (windowInsets.isVisible(WindowInsetsCompat.Type.ime())) keyboardShown = true;
+                else if (keyboardShown) leaveKeyboardMode();
+            }
             return windowInsets;
         });
         ViewCompat.requestApplyInsets(scroll);
@@ -155,17 +161,34 @@ public class ControllerActivity extends AppCompatActivity {
         navigation.addView(apps, appsParams);
         root.addView(navigation);
         keyboard.setOnClickListener(v -> {
+            keyboardMode = true;
+            keyboardShown = false;
+            getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
             textRow.setVisibility(View.VISIBLE);
             input.setVisibility(View.VISIBLE);
-            input.requestFocus();
-            android.view.inputmethod.InputMethodManager ime =
-                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-            if (ime != null) ime.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            input.post(() -> {
+                if (!keyboardMode || isFinishing() || isDestroyed()) return;
+                input.requestFocus();
+                android.view.inputmethod.InputMethodManager ime =
+                        (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                if (ime != null) ime.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            });
         });
         send.setOnClickListener(v -> {
             session.sendText(input.getText().toString());
             input.setText("");
+            android.view.inputmethod.InputMethodManager ime =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (ime != null) ime.hideSoftInputFromWindow(input.getWindowToken(), 0);
+            input.clearFocus();
+            leaveKeyboardMode();
         });
+    }
+
+    private void leaveKeyboardMode() {
+        keyboardMode = false;
+        keyboardShown = false;
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
     }
 
     private static final class LaunchableApp {
@@ -356,6 +379,7 @@ public class ControllerActivity extends AppCompatActivity {
     }
 
     @Override protected void onPause() {
+        leaveKeyboardMode();
         if (session != null && dragging) { session.setDragging(false); dragging = false; }
         if (session != null) session.setCursorVisible(false);
         if (receiverRegistered) { unregisterReceiver(receiver); receiverRegistered = false; }

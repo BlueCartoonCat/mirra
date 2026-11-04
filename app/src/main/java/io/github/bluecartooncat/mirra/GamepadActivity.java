@@ -44,6 +44,7 @@ public class GamepadActivity extends AppCompatActivity {
             finish(); return;
         }
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         androidx.core.view.WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         bars.setAppearanceLightStatusBars(false);
         bars.setAppearanceLightNavigationBars(false);
