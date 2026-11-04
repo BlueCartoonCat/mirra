@@ -839,6 +839,21 @@ public class MainActivity extends AppCompatActivity {
         android.widget.EditText dpi = settingsField(fields, R.string.scrcpy_dpi, settings.dpi);
         android.widget.EditText fps = settingsField(fields, R.string.scrcpy_fps, settings.fps);
         android.widget.EditText bitrate = settingsField(fields, R.string.scrcpy_bitrate, settings.bitrateMbps);
+        TextView mouseLabel = new TextView(this);
+        mouseLabel.setText(R.string.scrcpy_mouse_mode);
+        mouseLabel.setPadding(0, dp(12), 0, 0);
+        fields.addView(mouseLabel);
+        android.widget.Spinner mouseMode = new android.widget.Spinner(this);
+        android.widget.ArrayAdapter<String> mouseAdapter = new android.widget.ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, new String[]{getString(R.string.scrcpy_mouse_hid),
+                getString(R.string.scrcpy_mouse_touch)});
+        mouseAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mouseMode.setAdapter(mouseAdapter);
+        mouseMode.setSelection(settings.touchMouse ? 1 : 0);
+        fields.addView(mouseMode, new LinearLayout.LayoutParams(-1, -2));
+        TextView mouseDescription = new TextView(this);
+        mouseDescription.setText(R.string.scrcpy_mouse_description);
+        fields.addView(mouseDescription);
         String[] selectedApp = {settings.defaultApp == null ? "" : settings.defaultApp};
         TextView appLabel = new TextView(this);
         appLabel.setText(R.string.scrcpy_default_app);
@@ -867,7 +882,7 @@ public class MainActivity extends AppCompatActivity {
                         if (w < 320 || w > 3840 || h < 320 || h > 3840 || w % 8 != 0 || h % 8 != 0
                                 || d < 72 || d > 640 || f < 1 || f > 120 || b < 1 || b > 50)
                             throw new IllegalArgumentException();
-                        ScrcpyPreferences.save(this, w, h, f, b, d, selectedApp[0]);
+                        ScrcpyPreferences.save(this, w, h, f, b, d, selectedApp[0], mouseMode.getSelectedItemPosition() == 1);
                         dialog.dismiss();
                     } catch (IllegalArgumentException e) {
                         android.widget.Toast.makeText(this, R.string.scrcpy_settings_invalid,

@@ -44,6 +44,10 @@
     <string name="scrcpy_dpi">Display density (dpi)</string>
     <string name="scrcpy_fps">Maximum frame rate (fps)</string>
     <string name="scrcpy_bitrate">Video bitrate (Mbps)</string>
+    <string name="scrcpy_mouse_mode">Mouse input mode</string>
+    <string name="scrcpy_mouse_hid">Virtual HID mouse</string>
+    <string name="scrcpy_mouse_touch">Injected touch with cursor</string>
+    <string name="scrcpy_mouse_description">Virtual HID provides a native mouse on Android 15 and newer. Injected touch uses an on-screen cursor and simulates touches; hover and mouse behavior may differ. Older Android versions use injected touch. Changes apply to the next cast.</string>
     <string name="scrcpy_default_app">Default app</string>
     <string name="scrcpy_default_app_none">None</string>
     <string name="scrcpy_default_app_choose">Choose default app</string>

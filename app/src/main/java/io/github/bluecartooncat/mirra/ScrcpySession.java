@@ -21,6 +21,7 @@ final class ScrcpySession {
     private final int fps, bitrateMbps, dpi;
     private final boolean audioEnabled;
     private final String defaultApp;
+    private final boolean touchMouse;
     private static volatile ScrcpySession active;
 
     private final Context context;
@@ -81,6 +82,7 @@ final class ScrcpySession {
         width = settings.width; height = settings.height; fps = settings.fps;
         bitrateMbps = settings.bitrateMbps; dpi = settings.dpi;
         defaultApp = settings.defaultApp;
+        touchMouse = settings.touchMouse;
     }
 
     static ScrcpySession active() { return active; }
@@ -101,7 +103,7 @@ final class ScrcpySession {
             }
         });
     }
-    boolean usesNativeMouse() { return android.os.Build.VERSION.SDK_INT >= 35; }
+    boolean usesNativeMouse() { return !touchMouse && android.os.Build.VERSION.SDK_INT >= 35; }
     void moveMouse(float dx, float dy) {
         if (!usesNativeMouse() || stopped) return;
         synchronized (controlQueueLock) {
@@ -157,7 +159,8 @@ final class ScrcpySession {
 
     void start() throws Exception {
         Log.i(TAG, "Starting scrcpy " + width + "x" + height + "/" + dpi + " dpi, max fps=" + fps
-                + ", bitrate=" + bitrateMbps + " Mbps, audio=" + audioEnabled);
+                + ", bitrate=" + bitrateMbps + " Mbps, audio=" + audioEnabled
+                + ", mouse=" + (usesNativeMouse() ? "virtual HID" : "injected touch"));
         byte[] serverBytes;
         try (InputStream in = context.getAssets().open("scrcpy-server.jar");
              java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {

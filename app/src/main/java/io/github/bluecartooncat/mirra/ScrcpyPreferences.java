@@ -7,6 +7,7 @@ import android.content.SharedPreferences;
 final class ScrcpyPreferences {
     final int width, height, fps, bitrateMbps, dpi;
     final String defaultApp;
+    final boolean touchMouse;
 
     ScrcpyPreferences(Context context) {
         SharedPreferences p = context.getSharedPreferences("scrcpy", Context.MODE_PRIVATE);
@@ -16,11 +17,13 @@ final class ScrcpyPreferences {
         bitrateMbps = p.getInt("bitrate", 8);
         dpi = p.getInt("dpi", 240);
         defaultApp = p.getString("default_app", "");
+        touchMouse = p.getBoolean("touch_mouse", false);
     }
 
-    static void save(Context context, int width, int height, int fps, int bitrate, int dpi, String defaultApp) {
+    static void save(Context context, int width, int height, int fps, int bitrate, int dpi, String defaultApp, boolean touchMouse) {
         context.getSharedPreferences("scrcpy", Context.MODE_PRIVATE).edit()
                 .putInt("width", width).putInt("height", height).putInt("fps", fps)
-                .putInt("bitrate", bitrate).putInt("dpi", dpi).putString("default_app", defaultApp).apply();
+                .putInt("bitrate", bitrate).putInt("dpi", dpi).putString("default_app", defaultApp)
+                .putBoolean("touch_mouse", touchMouse).apply();
     }
 }
